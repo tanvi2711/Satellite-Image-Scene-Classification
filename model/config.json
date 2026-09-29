@@ -1,0 +1,11 @@
+{
+  "class_names": [
+    "Forest",
+    "SeaLake",
+    "Desert",
+    "Cloudy",
+    "Unknown"
+  ],
+  "img_size": 224,
+  "unk_threshold": 0.25
+}
