@@ -7,11 +7,11 @@ Run with:
 Make sure the FastAPI backend is already running at BACKEND_URL below.
 """
 
-import io
-import requests
-import pandas as pd
-import streamlit as st
 import os
+
+import pandas as pd
+import requests
+import streamlit as st
 
 # ----------------------------------------------------------------------
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
@@ -25,7 +25,8 @@ st.set_page_config(
 )
 
 # ---------------- PREMIUM STYLING ----------------
-st.markdown("""
+st.markdown(
+    """
 <style>
     .stApp {
         background: linear-gradient(180deg, #0b1220 0%, #0f1b2d 100%);
@@ -67,7 +68,9 @@ st.markdown("""
     }
     .stButton>button:hover { background: linear-gradient(135deg,#1d4ed8,#1e40af); }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ---------------- SIDEBAR ----------------
 with st.sidebar:
@@ -80,7 +83,12 @@ with st.sidebar:
         st.success("Backend connected")
         st.caption(f"Classes: {', '.join(health['classes'])}")
         default_threshold = health.get("threshold", 0.5)
-    except Exception:
+    except (
+        requests.exceptions.RequestException,
+        ValueError,
+        KeyError,
+        TypeError,
+    ):
         st.error("Backend not reachable. Start it with:\n`uvicorn main:app --reload`")
         default_threshold = 0.5
 
@@ -88,12 +96,16 @@ with st.sidebar:
     st.markdown("**Review threshold**")
     threshold = st.slider(
         "Lower = stricter (more images flagged for review)",
-        min_value=0.05, max_value=0.95, value=float(default_threshold), step=0.01,
+        min_value=0.05,
+        max_value=0.95,
+        value=float(default_threshold),
+        step=0.01,
     )
     # st.caption("Adjustable per FR-13 — not hard-coded.")
 
 # ---------------- HERO ----------------
-st.markdown("""
+st.markdown(
+    """
 <div class="hero">
     <span class="badge">SCENE CLASSIFICATION</span><span class="badge">AI-POWERED</span>
     <h1>Satellite Image Scene Classifier</h1>
@@ -101,7 +113,9 @@ st.markdown("""
     Desert or Cloudy — with a confidence score. Anything that doesn't match a known scene is
     automatically flagged for review instead of a forced, unreliable guess.</p>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 tab_single, tab_bulk = st.tabs(["📷 Single Image", "🗂️ Bulk ZIP Upload"])
 
@@ -114,15 +128,12 @@ with tab_single:
     with col_upload:
         st.markdown("#### Upload an image")
         uploaded_file = st.file_uploader(
-            "Drag and drop a satellite image chip", type=["jpg", "jpeg", "png", "bmp", "webp"],
+            "Drag and drop a satellite image chip",
+            type=["jpg", "jpeg", "png", "bmp", "webp"],
             key="single_upload",
         )
         if uploaded_file:
-            st.image(
-    uploaded_file,
-    use_column_width=True,
-    caption=uploaded_file.name
-)
+            st.image(uploaded_file, use_column_width=True, caption=uploaded_file.name)
             run = st.button("🔍 Classify Image", use_container_width=True)
         else:
             run = False
@@ -133,25 +144,40 @@ with tab_single:
         if uploaded_file and run:
             with st.spinner("Running model..."):
                 try:
-                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-                    r = requests.post(f"{BACKEND_URL}/predict", files=files,
-                                       params={"threshold": threshold}, timeout=30)
+                    files = {
+                        "file": (
+                            uploaded_file.name,
+                            uploaded_file.getvalue(),
+                            uploaded_file.type,
+                        )
+                    }
+                    r = requests.post(
+                        f"{BACKEND_URL}/predict",
+                        files=files,
+                        params={"threshold": threshold},
+                        timeout=30,
+                    )
                     r.raise_for_status()
                     res = r.json()
 
-                    css_class = "result-known" if res["status"] == "KNOWN" else "result-review"
+                    css_class = (
+                        "result-known" if res["status"] == "KNOWN" else "result-review"
+                    )
                     icon = "✅" if res["status"] == "KNOWN" else "⚠️"
 
-                    st.markdown(f"""
+                    st.markdown(
+                        f"""
                     <div class="result-card {css_class}">
-                        <div class="result-title">{icon} {res['final_result']}</div>
-                        <div class="result-sub">Confidence: {res['confidence_percent']} &nbsp;|&nbsp;
-                        Status: {res['status']} &nbsp;|&nbsp; P(Unknown): {res['p_unknown']*100:.1f}%</div>
+                        <div class="result-title">{icon} {res["final_result"]}</div>
+                        <div class="result-sub">Confidence: {res["confidence_percent"]} &nbsp;|&nbsp;
+                        Status: {res["status"]} &nbsp;|&nbsp; P(Unknown): {res["p_unknown"] * 100:.1f}%</div>
                         <div class="conf-bar-bg">
-                            <div class="conf-bar-fill" style="width:{res['confidence']*100:.1f}%"></div>
+                            <div class="conf-bar-fill" style="width:{res["confidence"] * 100:.1f}%"></div>
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """,
+                        unsafe_allow_html=True,
+                    )
 
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Predicted Class", res["predicted_class"])
@@ -159,19 +185,25 @@ with tab_single:
                     c3.metric("Status", res["status"])
 
                     if res["status"] == "REVIEW":
-                        st.warning("This image doesn't confidently match a known scene category and has been flagged for manual review.")
+                        st.warning(
+                            "This image doesn't confidently match a known scene category and has been flagged for manual review."
+                        )
 
                 except requests.exceptions.RequestException as e:
                     st.error(f"Could not reach backend: {e}")
         else:
-            st.markdown("Upload an image and click **Classify Image** to see results here.")
+            st.markdown(
+                "Upload an image and click **Classify Image** to see results here."
+            )
 
 # ======================================================================
 # TAB 2 — BULK ZIP UPLOAD
 # ======================================================================
 with tab_bulk:
     st.markdown("#### Upload a ZIP of images")
-    zip_file = st.file_uploader("Drag and drop a .zip file", type=["zip"], key="bulk_upload")
+    zip_file = st.file_uploader(
+        "Drag and drop a .zip file", type=["zip"], key="bulk_upload"
+    )
 
     if zip_file:
         run_bulk = st.button("🔍 Classify All Images", use_container_width=True)
@@ -182,9 +214,15 @@ with tab_bulk:
     if zip_file and run_bulk:
         with st.spinner("Processing zip file..."):
             try:
-                files = {"file": (zip_file.name, zip_file.getvalue(), "application/zip")}
-                r = requests.post(f"{BACKEND_URL}/predict/bulk", files=files,
-                                   params={"threshold": threshold}, timeout=120)
+                files = {
+                    "file": (zip_file.name, zip_file.getvalue(), "application/zip")
+                }
+                r = requests.post(
+                    f"{BACKEND_URL}/predict/bulk",
+                    files=files,
+                    params={"threshold": threshold},
+                    timeout=120,
+                )
                 r.raise_for_status()
                 res = r.json()
 
@@ -194,29 +232,43 @@ with tab_bulk:
                 c3.metric("Needs Review", res["review"])
 
                 df = pd.DataFrame(res["results"])
-                df = df.rename(columns={
-                    "filename": "Image", "final_result": "Result",
-                    "confidence_percent": "Confidence", "status": "Status",
-                })
+                df = df.rename(
+                    columns={
+                        "filename": "Image",
+                        "final_result": "Result",
+                        "confidence_percent": "Confidence",
+                        "status": "Status",
+                    }
+                )
 
                 def highlight_status(row):
-                    color = "background-color: rgba(46,160,67,0.15)" if row.Status == "KNOWN" else "background-color: rgba(210,153,34,0.15)"
+                    color = (
+                        "background-color: rgba(46,160,67,0.15)"
+                        if row.Status == "KNOWN"
+                        else "background-color: rgba(210,153,34,0.15)"
+                    )
                     return [color] * len(row)
 
                 st.dataframe(
-    df[["Image", "Result", "Confidence", "Status"]].style.apply(
-        highlight_status, axis=1
-    ),
-    use_container_width=True,
-    hide_index=True,
-)
+                    df[["Image", "Result", "Confidence", "Status"]].style.apply(
+                        highlight_status, axis=1
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
                 csv = df.to_csv(index=False).encode("utf-8")
-                st.download_button("⬇️ Download results as CSV", data=csv,
-                                   file_name="classification_results.csv", mime="text/csv")
+                st.download_button(
+                    "⬇️ Download results as CSV",
+                    data=csv,
+                    file_name="classification_results.csv",
+                    mime="text/csv",
+                )
 
             except requests.exceptions.RequestException as e:
                 st.error(f"Could not reach backend: {e}")
 
 st.divider()
-st.caption("Satellite Image Scene Classification · EfficientNetV2-S · Built for the Azure Internship Project")
+st.caption(
+    "Satellite Image Scene Classification · EfficientNetV2-S · Built for the Azure Internship Project"
+)
