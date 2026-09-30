@@ -8,13 +8,7 @@ def test_health_returns_model_status(client):
     assert data["status"] == "ok"
     assert data["model_loaded"] is True
 
-    assert data["classes"] == [
-        "Forest",
-        "SeaLake",
-        "Desert",
-        "Cloudy",
-        "Unknown"
-    ]
+    assert data["classes"] == ["Forest", "SeaLake", "Desert", "Cloudy", "Unknown"]
 
     assert data["threshold"] == 0.3
 
@@ -26,11 +20,6 @@ def test_config_returns_known_classes(client):
 
     data = response.json()
 
-    assert data["class_names"] == [
-        "Forest",
-        "SeaLake",
-        "Desert",
-        "Cloudy"
-    ]
+    assert data["class_names"] == ["Forest", "SeaLake", "Desert", "Cloudy"]
 
     assert data["default_threshold"] == 0.3
