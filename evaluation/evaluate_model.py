@@ -8,15 +8,14 @@ Evaluates images in dataset/test.
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-
 from sklearn.metrics import (
+    ConfusionMatrixDisplay,
     accuracy_score,
     classification_report,
     confusion_matrix,
-    ConfusionMatrixDisplay,
 )
 
 # Add project root to Python path
@@ -25,10 +24,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Reuse the actual backend model and prediction logic
 from backend.main import (
-    load_and_prepare,
-    predict_array,
     CLASS_NAMES,
     KNOWN_CLASS_NAMES,
+    load_and_prepare,
+    predict_array,
 )
 
 # Dataset location
@@ -59,9 +58,7 @@ def evaluate_model():
     print("=" * 60)
 
     if not TEST_DIR.exists():
-        raise FileNotFoundError(
-            f"Test dataset not found: {TEST_DIR}"
-        )
+        raise FileNotFoundError(f"Test dataset not found: {TEST_DIR}")
 
     print(f"Test dataset: {TEST_DIR}")
     print(f"Model classes: {CLASS_NAMES}")
@@ -84,9 +81,9 @@ def evaluate_model():
             continue
 
         image_files = sorted(
-            file for file in folder.rglob("*")
-            if file.is_file()
-            and file.suffix.lower() in IMAGE_EXTENSIONS
+            file
+            for file in folder.rglob("*")
+            if file.is_file() and file.suffix.lower() in IMAGE_EXTENSIONS
         )
 
         print(f"\nEvaluating {actual_class}: {len(image_files)} images")
@@ -99,10 +96,7 @@ def evaluate_model():
                 arr = load_and_prepare(image_bytes)
 
                 # Same prediction logic as the backend
-                prediction = predict_array(
-                    arr,
-                    filename=image_path.name
-                )
+                prediction = predict_array(arr, filename=image_path.name)
 
                 # A rejected prediction counts as Unknown
                 # for this operational evaluation.
@@ -115,19 +109,21 @@ def evaluate_model():
                 y_true.append(actual_class)
                 y_pred.append(predicted_class)
 
-                results.append({
-                    "filename": str(image_path.relative_to(TEST_DIR)),
-                    "actual_class": actual_class,
-                    "predicted_class": prediction.predicted_class,
-                    "final_result": prediction.final_result,
-                    "status": prediction.status,
-                    "confidence": prediction.confidence,
-                    "p_unknown": prediction.p_unknown,
-                    "evaluation_prediction": predicted_class,
-                    "correct": predicted_class == actual_class,
-                })
+                results.append(
+                    {
+                        "filename": str(image_path.relative_to(TEST_DIR)),
+                        "actual_class": actual_class,
+                        "predicted_class": prediction.predicted_class,
+                        "final_result": prediction.final_result,
+                        "status": prediction.status,
+                        "confidence": prediction.confidence,
+                        "p_unknown": prediction.p_unknown,
+                        "evaluation_prediction": predicted_class,
+                        "correct": predicted_class == actual_class,
+                    }
+                )
 
-            except Exception as error:
+            except (OSError, ValueError, RuntimeError) as error:
                 print(f"Error processing {image_path.name}: {error}")
 
     if not y_true:
@@ -202,12 +198,8 @@ def evaluate_model():
     summary = {
         "total_images": len(y_true),
         "accuracy": accuracy,
-        "known_predictions": int(
-            (results_df["status"] == "KNOWN").sum()
-        ),
-        "review_predictions": int(
-            (results_df["status"] == "REVIEW").sum()
-        ),
+        "known_predictions": int((results_df["status"] == "KNOWN").sum()),
+        "review_predictions": int((results_df["status"] == "REVIEW").sum()),
     }
 
     pd.DataFrame([summary]).to_csv(

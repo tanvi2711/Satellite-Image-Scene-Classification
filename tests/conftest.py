@@ -1,6 +1,6 @@
+import importlib
 import io
 import json
-import importlib
 import sys
 from unittest.mock import patch
 
@@ -12,16 +12,11 @@ import pytest
 class FakeModel:
     def __init__(self):
         self.probabilities = np.array(
-            [[0.70, 0.10, 0.08, 0.07, 0.05]],
-            dtype=np.float32
+            [[0.70, 0.10, 0.08, 0.07, 0.05]], dtype=np.float32
         )
 
     def predict(self, images, verbose=0):
-        return np.repeat(
-            self.probabilities,
-            repeats=len(images),
-            axis=0
-        )
+        return np.repeat(self.probabilities, repeats=len(images), axis=0)
 
 
 @pytest.fixture(scope="session")
@@ -29,25 +24,19 @@ def api():
     fake_model = FakeModel()
 
     # Import the backend with the real model loading disabled.
-    with patch("pathlib.Path.exists", return_value=True), \
-         patch(
-             "pathlib.Path.read_text",
-             return_value=json.dumps({
-                 "class_names": [
-                     "Forest",
-                     "SeaLake",
-                     "Desert",
-                     "Cloudy",
-                     "Unknown"
-                 ],
-                 "unk_threshold": 0.3
-             })
-         ), \
-         patch(
-             "tensorflow.keras.models.load_model",
-             return_value=fake_model
-         ):
-
+    with (
+        patch("pathlib.Path.exists", return_value=True),
+        patch(
+            "pathlib.Path.read_text",
+            return_value=json.dumps(
+                {
+                    "class_names": ["Forest", "SeaLake", "Desert", "Cloudy", "Unknown"],
+                    "unk_threshold": 0.3,
+                }
+            ),
+        ),
+        patch("tensorflow.keras.models.load_model", return_value=fake_model),
+    ):
         sys.modules.pop("backend.main", None)
         module = importlib.import_module("backend.main")
 
@@ -73,9 +62,6 @@ def image_bytes():
 
     output = io.BytesIO()
 
-    Image.fromarray(pixels).save(
-        output,
-        format="JPEG"
-    )
+    Image.fromarray(pixels).save(output, format="JPEG")
 
     return output.getvalue()

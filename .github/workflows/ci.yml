@@ -2,21 +2,24 @@ name: Satellite Scene Classification CI/CD
 
 on:
   push:
-    branches: [main]
-
   pull_request:
-    branches: [main]
+    branches:
+      - develop
+      - main
+
+env:
+  ACR_NAME: satellitescenereg2711
+  ACR_LOGIN_SERVER: satellitescenereg2711.azurecr.io
+  RESOURCE_GROUP: rg-satellite-scene-classification
+  BACKEND_APP: satellite-backend
+  FRONTEND_APP: satellite-frontend
 
 permissions:
   contents: read
 
 jobs:
-
-  # ==========================================
-  # 1. RUN PYTHON TESTS
-  # ==========================================
   test:
-    name: Run Python Tests
+    name: Code Quality and Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -32,58 +35,91 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
-          pip install pytest pytest-cov
+          pip install ruff mypy pytest pytest-cov
+
+      - name: Ruff lint
+        run: |
+          ruff check backend frontend tests evaluation
+
+      - name: Ruff format check
+        run: |
+          ruff format --check backend frontend tests evaluation
+
+      - name: Mypy type check
+        run: |
+          mypy backend --ignore-missing-imports
 
       - name: Run automated tests
         run: |
-          python -m pytest tests/ -v --cov=backend.main --cov-report=term-missing
+          python -m pytest tests/ -v \
+            --cov=backend.main \
+            --cov-report=term-missing \
+            --cov-fail-under=70
 
-
-  # ==========================================
-  # 2. BUILD + PUSH DOCKER IMAGES
-  # ==========================================
   docker:
-    name: Build and Push Docker Images
+    name: Build Docker Images
     runs-on: ubuntu-latest
     needs: test
 
     permissions:
       contents: read
-      packages: write
+      id-token: write
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Login to Azure with OIDC
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/login@v2
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # ------------------------------------------
-      # Backend
-      # ------------------------------------------
-      - name: Build and push backend image
+      - name: Login to Azure Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          az acr login --name "$ACR_NAME"
+
+      - name: Build backend image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/satellite-scene-classification-backend:latest
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/satellite-backend:${{ github.sha }}
 
-      # ------------------------------------------
-      # Frontend
-      # ------------------------------------------
-      - name: Build and push frontend image
+      - name: Build frontend image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile.frontend
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/satellite-scene-classification-frontend:latest
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/satellite-frontend:${{ github.sha }}
+
+      - name: Deploy backend to Azure Container Apps
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          az containerapp update \
+            --name "$BACKEND_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$ACR_LOGIN_SERVER/satellite-backend:${{ github.sha }}"
+
+      - name: Deploy frontend to Azure Container Apps
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          az containerapp update \
+            --name "$FRONTEND_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$ACR_LOGIN_SERVER/satellite-frontend:${{ github.sha }}"
+
+      - name: Azure logout
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          az logout

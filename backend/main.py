@@ -15,22 +15,20 @@ import io
 import json
 import zipfile
 from pathlib import Path
-from typing import List
 
 import numpy as np
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from PIL import Image
-import tensorflow as tf
+from pydantic import BaseModel
 from tensorflow import keras
 
 # ----------------------------------------------------------------------
 # CONFIG — only thing you need to edit
 # ----------------------------------------------------------------------
 MODEL_DIR = Path(__file__).resolve().parent.parent / "model"
-MODEL_PATH = MODEL_DIR / "satellite_v5_final.keras"      # <-- your downloaded .keras file
-CONFIG_PATH = MODEL_DIR / "config.json"                   # <-- class_names + unk_threshold
+MODEL_PATH = MODEL_DIR / "satellite_v5_final.keras"  # <-- your downloaded .keras file
+CONFIG_PATH = MODEL_DIR / "config.json"  # <-- class_names + unk_threshold
 
 IMG_SIZE = 224
 
@@ -41,7 +39,7 @@ app = FastAPI(title="Satellite Scene Classification API", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # for local dev; restrict this in production
+    allow_origins=["*"],  # for local dev; restrict this in production
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -55,10 +53,14 @@ if not MODEL_PATH.exists():
 if not CONFIG_PATH.exists():
     raise FileNotFoundError(f"config.json not found at {CONFIG_PATH}.")
 
-model = keras.models.load_model(MODEL_PATH, compile=False)   # compile=False: we only need inference
+model = keras.models.load_model(
+    MODEL_PATH, compile=False
+)  # compile=False: we only need inference
 config = json.loads(CONFIG_PATH.read_text())
 
-CLASS_NAMES: List[str] = config["class_names"]        # e.g. ["Forest","SeaLake","Desert","Cloudy","Unknown"]
+CLASS_NAMES: list[str] = config[
+    "class_names"
+]  # e.g. ["Forest","SeaLake","Desert","Cloudy","Unknown"]
 UNK_THRESHOLD: float = config.get("unk_threshold", config.get("conf_threshold", 0.5))
 UNKNOWN_ID = CLASS_NAMES.index("Unknown") if "Unknown" in CLASS_NAMES else None
 KNOWN_CLASS_NAMES = [c for c in CLASS_NAMES if c != "Unknown"]
@@ -73,18 +75,18 @@ print(f"[startup] Classes: {CLASS_NAMES} | threshold: {UNK_THRESHOLD}")
 class PredictionResult(BaseModel):
     filename: str
     predicted_class: str
-    confidence: float          # 0-1
-    confidence_percent: str    # "93.60%" for display convenience
+    confidence: float  # 0-1
+    confidence_percent: str  # "93.60%" for display convenience
     p_unknown: float
-    final_result: str          # class name OR "UNRECOGNIZED"
-    status: str                # "KNOWN" or "REVIEW"  (FR-12)
+    final_result: str  # class name OR "UNRECOGNIZED"
+    status: str  # "KNOWN" or "REVIEW"  (FR-12)
 
 
 class BulkPredictionResponse(BaseModel):
     total: int
     known: int
     review: int
-    results: List[PredictionResult]
+    results: list[PredictionResult]
 
 
 # ----------------------------------------------------------------------
@@ -92,7 +94,7 @@ class BulkPredictionResponse(BaseModel):
 # ----------------------------------------------------------------------
 def load_and_prepare(image_bytes: bytes) -> np.ndarray:
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = img.resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
+    img = img.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
     arr = np.asarray(img, dtype=np.float32)
     return np.expand_dims(arr, axis=0)
 
@@ -102,23 +104,32 @@ def is_blank(arr: np.ndarray, std_threshold: float = 1.0) -> bool:
     return float(np.std(arr[0])) < std_threshold
 
 
-def predict_array(arr: np.ndarray, filename: str, threshold: float = None) -> PredictionResult:
+def predict_array(
+    arr: np.ndarray, filename: str, threshold: float | None = None
+) -> PredictionResult:
     T = UNK_THRESHOLD if threshold is None else threshold
 
     if is_blank(arr):
         return PredictionResult(
-            filename=filename, predicted_class="Unknown", confidence=0.0,
-            confidence_percent="0.00%", p_unknown=1.0,
-            final_result="UNRECOGNIZED", status="REVIEW",
+            filename=filename,
+            predicted_class="Unknown",
+            confidence=0.0,
+            confidence_percent="0.00%",
+            p_unknown=1.0,
+            final_result="UNRECOGNIZED",
+            status="REVIEW",
         )
 
     # 4-view test-time augmentation, one batched call
-    views = np.concatenate([
-        arr,
-        arr[:, :, ::-1, :],
-        arr[:, ::-1, :, :],
-        np.rot90(arr[0], k=2)[None, ...],
-    ], axis=0)
+    views = np.concatenate(
+        [
+            arr,
+            arr[:, :, ::-1, :],
+            arr[:, ::-1, :, :],
+            np.rot90(arr[0], k=2)[None, ...],
+        ],
+        axis=0,
+    )
 
     probs = model.predict(views, verbose=0).mean(axis=0)
 
@@ -154,7 +165,12 @@ def predict_array(arr: np.ndarray, filename: str, threshold: float = None) -> Pr
 # ----------------------------------------------------------------------
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": True, "classes": CLASS_NAMES, "threshold": UNK_THRESHOLD}
+    return {
+        "status": "ok",
+        "model_loaded": True,
+        "classes": CLASS_NAMES,
+        "threshold": UNK_THRESHOLD,
+    }
 
 
 @app.get("/config")
@@ -164,44 +180,67 @@ def get_config():
 
 
 @app.post("/predict", response_model=PredictionResult)
-async def predict_single(file: UploadFile = File(...), threshold: float = None):
+async def predict_single(
+    file: UploadFile = File(...),  # noqa: B008
+    threshold: float | None = None,
+) -> PredictionResult:
     """FR-8: single image upload -> predicted class + confidence."""
-    if not file.content_type.startswith("image/"):
+    content_type = file.content_type or ""
+
+    if not content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image.")
     content = await file.read()
     try:
         arr = load_and_prepare(content)
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=f"Could not read image: {e}")
-    return predict_array(arr, file.filename, threshold)
+    filename = file.filename or "uploaded_image"
+    return predict_array(arr, filename, threshold)
 
 
 @app.post("/predict/bulk", response_model=BulkPredictionResponse)
-async def predict_bulk(file: UploadFile = File(...), threshold: float = None):
+async def predict_bulk(
+    file: UploadFile = File(...),  # noqa: B008
+    threshold: float | None = None,
+) -> BulkPredictionResponse:
     """FR-9 + FR-11: zip upload -> results table for every image inside."""
-    if not file.filename.lower().endswith(".zip"):
+    filename = file.filename or ""
+
+    if not filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="File must be a .zip archive.")
 
     content = await file.read()
-    results: List[PredictionResult] = []
+    results: list[PredictionResult] = []
     valid_ext = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
-            names = [n for n in zf.namelist() if Path(n).suffix.lower() in valid_ext and not n.startswith("__MACOSX")]
+            names = [
+                n
+                for n in zf.namelist()
+                if Path(n).suffix.lower() in valid_ext and not n.startswith("__MACOSX")
+            ]
             if not names:
-                raise HTTPException(status_code=400, detail="No images found inside the zip.")
+                raise HTTPException(
+                    status_code=400, detail="No images found inside the zip."
+                )
             for name in names:
                 try:
                     img_bytes = zf.read(name)
                     arr = load_and_prepare(img_bytes)
                     results.append(predict_array(arr, Path(name).name, threshold))
-                except Exception as e:
-                    results.append(PredictionResult(
-                        filename=Path(name).name, predicted_class="ERROR", confidence=0.0,
-                        confidence_percent="0.00%", p_unknown=0.0,
-                        final_result=f"ERROR: {e}", status="REVIEW",
-                    ))
+                except (OSError, ValueError, RuntimeError) as e:
+                    results.append(
+                        PredictionResult(
+                            filename=Path(name).name,
+                            predicted_class="ERROR",
+                            confidence=0.0,
+                            confidence_percent="0.00%",
+                            p_unknown=0.0,
+                            final_result=f"ERROR: {e}",
+                            status="REVIEW",
+                        )
+                    )
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="Invalid zip file.")
 
