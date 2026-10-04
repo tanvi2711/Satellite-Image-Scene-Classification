@@ -34,12 +34,11 @@ MODEL_PATH = MODEL_DIR / "satellite_v5_final.keras"
 CONFIG_PATH = MODEL_DIR / "config.json"
 
 IMG_SIZE = 224
+BULK_BATCH_SIZE = 32
 
 # ----------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------
-# Logs go to stdout/stderr, so Azure Container Apps can collect them
-# through the existing Log Analytics configuration.
 logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
@@ -132,6 +131,7 @@ KNOWN_CLASS_NAMES = [c for c in CLASS_NAMES if c != "Unknown"]
 
 print(f"[startup] Model loaded from {MODEL_PATH}")
 print(f"[startup] Classes: {CLASS_NAMES} | threshold: {UNK_THRESHOLD}")
+print(f"[startup] Bulk inference batch size: {BULK_BATCH_SIZE}")
 
 
 # ----------------------------------------------------------------------
@@ -173,49 +173,40 @@ def is_blank(arr: np.ndarray, std_threshold: float = 1.0) -> bool:
     return float(np.std(arr[0])) < std_threshold
 
 
-def predict_array(
-    arr: np.ndarray,
-    filename: str,
-    threshold: float | None = None,
-) -> PredictionResult:
-    """Run model inference and apply the Unknown/review decision logic."""
-    selected_threshold = UNK_THRESHOLD if threshold is None else threshold
+def make_tta_views(arrays: list[np.ndarray]) -> np.ndarray:
+    """Create four test-time views for each image and return one model batch."""
+    batches: list[np.ndarray] = []
 
-    if is_blank(arr):
-        return PredictionResult(
-            filename=filename,
-            predicted_class="Unknown",
-            confidence=0.0,
-            confidence_percent="0.00%",
-            p_unknown=1.0,
-            final_result="UNRECOGNIZED",
-            status="REVIEW",
+    for arr in arrays:
+        batches.extend(
+            [
+                arr,
+                arr[:, :, ::-1, :],
+                arr[:, ::-1, :, :],
+                np.rot90(arr[0], k=2)[None, ...],
+            ]
         )
 
-    # Four-view test-time augmentation in one batched model call.
-    views = np.concatenate(
-        [
-            arr,
-            arr[:, :, ::-1, :],
-            arr[:, ::-1, :, :],
-            np.rot90(arr[0], k=2)[None, ...],
-        ],
-        axis=0,
-    )
+    return np.concatenate(batches, axis=0)
 
-    probs = model.predict(views, verbose=0).mean(axis=0)
 
+def result_from_probabilities(
+    probs: np.ndarray,
+    filename: str,
+    threshold: float,
+) -> PredictionResult:
+    """Convert one averaged probability vector into the API result schema."""
     if UNKNOWN_ID is not None:
         top = int(probs.argmax())
         p_unknown = float(probs[UNKNOWN_ID])
         known_probs = np.delete(probs, UNKNOWN_ID)
         best_known_idx = int(known_probs.argmax())
-        accept = (top != UNKNOWN_ID) and (p_unknown < selected_threshold)
+        accept = (top != UNKNOWN_ID) and (p_unknown < threshold)
     else:
         top = int(probs.argmax())
         p_unknown = 0.0
         best_known_idx = top
-        accept = float(probs[top]) >= selected_threshold
+        accept = float(probs[top]) >= threshold
 
     predicted_class = KNOWN_CLASS_NAMES[best_known_idx]
     confidence = float(probs[CLASS_NAMES.index(predicted_class)])
@@ -229,6 +220,55 @@ def predict_array(
         final_result=predicted_class if accept else "UNRECOGNIZED",
         status="KNOWN" if accept else "REVIEW",
     )
+
+
+def predict_array(
+    arr: np.ndarray,
+    filename: str,
+    threshold: float | None = None,
+) -> PredictionResult:
+    """Run model inference for one image using four-view test-time augmentation."""
+    selected_threshold = UNK_THRESHOLD if threshold is None else threshold
+
+    if is_blank(arr):
+        return PredictionResult(
+            filename=filename,
+            predicted_class="Unknown",
+            confidence=0.0,
+            confidence_percent="0.00%",
+            p_unknown=1.0,
+            final_result="UNRECOGNIZED",
+            status="REVIEW",
+        )
+
+    views = make_tta_views([arr])
+    probs = model.predict(views, verbose=0).mean(axis=0)
+    return result_from_probabilities(probs, filename, selected_threshold)
+
+
+def predict_batch(
+    arrays: list[np.ndarray],
+    filenames: list[str],
+    threshold: float,
+) -> list[PredictionResult]:
+    """Predict a batch of non-blank images with one TensorFlow model call."""
+    if not arrays:
+        return []
+
+    views = make_tta_views(arrays)
+    probabilities = model.predict(views, verbose=0)
+
+    # Four views are stored consecutively for each source image.
+    probabilities = probabilities.reshape(
+        len(arrays),
+        4,
+        len(CLASS_NAMES),
+    ).mean(axis=1)
+
+    return [
+        result_from_probabilities(probabilities[index], filenames[index], threshold)
+        for index in range(len(arrays))
+    ]
 
 
 # ----------------------------------------------------------------------
@@ -312,7 +352,7 @@ async def predict_bulk(
     file: UploadFile = File(...),  # noqa: B008
     threshold: float | None = None,
 ) -> BulkPredictionResponse:
-    """Classify every supported image in a ZIP and log each prediction."""
+    """Classify every supported image in a ZIP using batched inference."""
     request_id = str(uuid.uuid4())
     start = time.perf_counter()
 
@@ -327,6 +367,7 @@ async def predict_bulk(
     content = await file.read()
     results: list[PredictionResult] = []
     valid_ext = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    selected_threshold = UNK_THRESHOLD if threshold is None else threshold
 
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
@@ -343,38 +384,56 @@ async def predict_bulk(
                     detail="No images found inside the zip.",
                 )
 
-            for name in names:
-                image_start = time.perf_counter()
-                image_name = Path(name).name
+            # Process images in bounded batches to improve throughput without
+            # putting an unnecessarily large number of images into RAM at once.
+            for batch_start in range(0, len(names), BULK_BATCH_SIZE):
+                batch_names = names[batch_start : batch_start + BULK_BATCH_SIZE]
+                batch_arrays: list[np.ndarray] = []
+                batch_filenames: list[str] = []
+                batch_results: list[PredictionResult | None] = [None] * len(batch_names)
 
-                try:
-                    img_bytes = zf.read(name)
-                    arr = load_and_prepare(img_bytes)
-                    result = predict_array(arr, image_name, threshold)
-                    results.append(result)
+                for index, name in enumerate(batch_names):
+                    image_start = time.perf_counter()
+                    image_name = Path(name).name
 
-                    image_elapsed_ms = (time.perf_counter() - image_start) * 1000
+                    try:
+                        img_bytes = zf.read(name)
+                        arr = load_and_prepare(img_bytes)
 
-                    log_prediction(
-                        request_id=request_id,
-                        mode="bulk",
-                        filename=image_name,
-                        predicted_class=result.predicted_class,
-                        confidence=result.confidence,
-                        p_unknown=result.p_unknown,
-                        final_result=result.final_result,
-                        status=result.status,
-                        threshold=(UNK_THRESHOLD if threshold is None else threshold),
-                        processing_time_ms=image_elapsed_ms,
-                    )
+                        if is_blank(arr):
+                            blank_result = PredictionResult(
+                                filename=image_name,
+                                predicted_class="Unknown",
+                                confidence=0.0,
+                                confidence_percent="0.00%",
+                                p_unknown=1.0,
+                                final_result="UNRECOGNIZED",
+                                status="REVIEW",
+                            )
+                            batch_results[index] = blank_result
+                            log_prediction(
+                                request_id=request_id,
+                                mode="bulk",
+                                filename=image_name,
+                                predicted_class=blank_result.predicted_class,
+                                confidence=blank_result.confidence,
+                                p_unknown=blank_result.p_unknown,
+                                final_result=blank_result.final_result,
+                                status=blank_result.status,
+                                threshold=selected_threshold,
+                                processing_time_ms=(time.perf_counter() - image_start)
+                                * 1000,
+                            )
+                            continue
 
-                except (OSError, ValueError, RuntimeError, KeyError) as exc:
-                    image_elapsed_ms = (time.perf_counter() - image_start) * 1000
+                        batch_arrays.append(arr)
+                        batch_filenames.append(image_name)
 
-                    error_message = str(exc)
+                    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+                        image_elapsed_ms = (time.perf_counter() - image_start) * 1000
+                        error_message = str(exc)
 
-                    results.append(
-                        PredictionResult(
+                        error_result = PredictionResult(
                             filename=image_name,
                             predicted_class="ERROR",
                             confidence=0.0,
@@ -383,15 +442,51 @@ async def predict_bulk(
                             final_result=f"ERROR: {error_message}",
                             status="REVIEW",
                         )
+                        batch_results[index] = error_result
+                        log_prediction_error(
+                            request_id=request_id,
+                            mode="bulk",
+                            filename=image_name,
+                            error=error_message,
+                            processing_time_ms=image_elapsed_ms,
+                        )
+
+                if batch_arrays:
+                    inference_start = time.perf_counter()
+                    predicted_results = predict_batch(
+                        batch_arrays,
+                        batch_filenames,
+                        selected_threshold,
+                    )
+                    batch_elapsed_ms = (time.perf_counter() - inference_start) * 1000
+
+                    average_image_ms = (
+                        batch_elapsed_ms / len(predicted_results)
+                        if predicted_results
+                        else 0.0
                     )
 
-                    log_prediction_error(
-                        request_id=request_id,
-                        mode="bulk",
-                        filename=image_name,
-                        error=error_message,
-                        processing_time_ms=image_elapsed_ms,
-                    )
+                    predicted_index = 0
+                    for index, item in enumerate(batch_results):
+                        if item is not None:
+                            continue
+                        result = predicted_results[predicted_index]
+                        batch_results[index] = result
+                        predicted_index += 1
+                        log_prediction(
+                            request_id=request_id,
+                            mode="bulk",
+                            filename=result.filename,
+                            predicted_class=result.predicted_class,
+                            confidence=result.confidence,
+                            p_unknown=result.p_unknown,
+                            final_result=result.final_result,
+                            status=result.status,
+                            threshold=selected_threshold,
+                            processing_time_ms=average_image_ms,
+                        )
+
+                results.extend(result for result in batch_results if result is not None)
 
     except zipfile.BadZipFile:
         elapsed_ms = (time.perf_counter() - start) * 1000
@@ -418,6 +513,7 @@ async def predict_bulk(
                 "total": len(results),
                 "known": known,
                 "review": len(results) - known,
+                "batch_size": BULK_BATCH_SIZE,
                 "processing_time_ms": round(
                     (time.perf_counter() - start) * 1000,
                     2,

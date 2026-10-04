@@ -667,11 +667,8 @@ with tab_bulk:
         )
 
     if zip_file:
-        try:
-            zip_bytes = zip_file.getvalue()
-            preview_images = extract_zip_images(zip_bytes)
-        except (OSError, ValueError, zipfile.BadZipFile, KeyError):
-            preview_images = {}
+        zip_bytes = zip_file.getvalue()
+        preview_images = {}
 
         st.markdown("### Upload summary")
         s1, s2 = st.columns(2)
@@ -772,6 +769,11 @@ with tab_bulk:
                         )
 
                     st.markdown("### Image-by-image results")
+
+                    try:
+                        preview_images = extract_zip_images(zip_bytes)
+                    except (OSError, ValueError, zipfile.BadZipFile, KeyError):
+                        preview_images = {}
 
                     # Every returned image gets its own visual result block.
                     for item in results:
