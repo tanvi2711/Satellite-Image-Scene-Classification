@@ -11,11 +11,15 @@ import pytest
 # Mock model for testing
 class FakeModel:
     def __init__(self):
+        self.predict_calls = 0
+        self.last_batch_size = 0
         self.probabilities = np.array(
             [[0.70, 0.10, 0.08, 0.07, 0.05]], dtype=np.float32
         )
 
     def predict(self, images, verbose=0):
+        self.predict_calls += 1
+        self.last_batch_size = len(images)
         return np.repeat(self.probabilities, repeats=len(images), axis=0)
 
 
@@ -47,6 +51,10 @@ def api():
 
 @pytest.fixture
 def client(api):
+    api.model.predict_calls = 0
+    api.model.last_batch_size = 0
+    api.prediction_cache.clear()
+
     from fastapi.testclient import TestClient
 
     return TestClient(api.app)
