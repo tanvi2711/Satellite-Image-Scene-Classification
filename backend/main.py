@@ -1,18 +1,21 @@
 """
 FastAPI backend for the Satellite Scene Classification project.
 
-Endpoints (matches BRD FR-8, FR-9, FR-10, FR-11, FR-12, FR-13):
-  GET  /health              -> simple check that the model is loaded
-  POST /predict              -> single image upload, returns class + confidence
-  POST /predict/bulk         -> zip file upload, returns a results table
-  GET  /config                -> current threshold + class list (for the UI to show)
+Endpoints:
+  GET  /health
+  POST /predict
+  POST /predict/bulk
+  GET  /config
 
 Run with:
-    uvicorn main:app --reload --port 8000
+    uvicorn backend.main:app --reload --port 8000
 """
 
 import io
 import json
+import logging
+import time
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -24,13 +27,76 @@ from pydantic import BaseModel
 from tensorflow import keras
 
 # ----------------------------------------------------------------------
-# CONFIG — only thing you need to edit
+# CONFIG
 # ----------------------------------------------------------------------
 MODEL_DIR = Path(__file__).resolve().parent.parent / "model"
-MODEL_PATH = MODEL_DIR / "satellite_v5_final.keras"  # <-- your downloaded .keras file
-CONFIG_PATH = MODEL_DIR / "config.json"  # <-- class_names + unk_threshold
+MODEL_PATH = MODEL_DIR / "satellite_v5_final.keras"
+CONFIG_PATH = MODEL_DIR / "config.json"
 
 IMG_SIZE = 224
+
+# ----------------------------------------------------------------------
+# LOGGING
+# ----------------------------------------------------------------------
+# Logs go to stdout/stderr, so Azure Container Apps can collect them
+# through the existing Log Analytics configuration.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+)
+logger = logging.getLogger("satellite_classifier")
+
+
+def log_prediction(
+    *,
+    request_id: str,
+    mode: str,
+    filename: str,
+    predicted_class: str,
+    confidence: float,
+    p_unknown: float,
+    final_result: str,
+    status: str,
+    threshold: float,
+    processing_time_ms: float,
+) -> None:
+    """Write structured prediction metadata without storing image data."""
+    log_record = {
+        "event": "prediction",
+        "request_id": request_id,
+        "mode": mode,
+        "filename": filename,
+        "predicted_class": predicted_class,
+        "confidence": round(confidence, 6),
+        "confidence_percent": round(confidence * 100, 2),
+        "p_unknown": round(p_unknown, 6),
+        "status": status,
+        "final_result": final_result,
+        "threshold": round(threshold, 6),
+        "processing_time_ms": round(processing_time_ms, 2),
+    }
+    logger.info(json.dumps(log_record, ensure_ascii=False))
+
+
+def log_prediction_error(
+    *,
+    request_id: str,
+    mode: str,
+    filename: str,
+    error: str,
+    processing_time_ms: float,
+) -> None:
+    """Write structured prediction error metadata without storing image data."""
+    log_record = {
+        "event": "prediction_error",
+        "request_id": request_id,
+        "mode": mode,
+        "filename": filename,
+        "error": error,
+        "processing_time_ms": round(processing_time_ms, 2),
+    }
+    logger.error(json.dumps(log_record, ensure_ascii=False))
+
 
 # ----------------------------------------------------------------------
 # LOAD MODEL + CONFIG ONCE AT STARTUP
@@ -39,7 +105,7 @@ app = FastAPI(title="Satellite Scene Classification API", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # for local dev; restrict this in production
+    allow_origins=["*"],  # for local dev; restrict in production
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -47,21 +113,20 @@ app.add_middleware(
 if not MODEL_PATH.exists():
     raise FileNotFoundError(
         f"Model file not found at {MODEL_PATH}. "
-        f"Download it from your Kaggle notebook's /kaggle/working/.../models/ folder "
-        f"and place it here."
+        "Download it from the Kaggle notebook and place it in the model folder."
     )
+
 if not CONFIG_PATH.exists():
     raise FileNotFoundError(f"config.json not found at {CONFIG_PATH}.")
 
-model = keras.models.load_model(
-    MODEL_PATH, compile=False
-)  # compile=False: we only need inference
+model = keras.models.load_model(MODEL_PATH, compile=False)
 config = json.loads(CONFIG_PATH.read_text())
 
-CLASS_NAMES: list[str] = config[
-    "class_names"
-]  # e.g. ["Forest","SeaLake","Desert","Cloudy","Unknown"]
-UNK_THRESHOLD: float = config.get("unk_threshold", config.get("conf_threshold", 0.5))
+CLASS_NAMES: list[str] = config["class_names"]
+UNK_THRESHOLD: float = config.get(
+    "unk_threshold",
+    config.get("conf_threshold", 0.5),
+)
 UNKNOWN_ID = CLASS_NAMES.index("Unknown") if "Unknown" in CLASS_NAMES else None
 KNOWN_CLASS_NAMES = [c for c in CLASS_NAMES if c != "Unknown"]
 
@@ -70,16 +135,16 @@ print(f"[startup] Classes: {CLASS_NAMES} | threshold: {UNK_THRESHOLD}")
 
 
 # ----------------------------------------------------------------------
-# RESPONSE SCHEMAS (FR-10: confidence score on every response)
+# RESPONSE SCHEMAS
 # ----------------------------------------------------------------------
 class PredictionResult(BaseModel):
     filename: str
     predicted_class: str
-    confidence: float  # 0-1
-    confidence_percent: str  # "93.60%" for display convenience
+    confidence: float
+    confidence_percent: str
     p_unknown: float
-    final_result: str  # class name OR "UNRECOGNIZED"
-    status: str  # "KNOWN" or "REVIEW"  (FR-12)
+    final_result: str
+    status: str
 
 
 class BulkPredictionResponse(BaseModel):
@@ -90,11 +155,15 @@ class BulkPredictionResponse(BaseModel):
 
 
 # ----------------------------------------------------------------------
-# CORE PREDICTION LOGIC (shared by single + bulk endpoints)
+# CORE PREDICTION LOGIC
 # ----------------------------------------------------------------------
 def load_and_prepare(image_bytes: bytes) -> np.ndarray:
+    """Load an image, convert it to RGB, resize it and create a model batch."""
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = img.resize((IMG_SIZE, IMG_SIZE), Image.Resampling.BILINEAR)
+    img = img.resize(
+        (IMG_SIZE, IMG_SIZE),
+        Image.Resampling.BILINEAR,
+    )
     arr = np.asarray(img, dtype=np.float32)
     return np.expand_dims(arr, axis=0)
 
@@ -105,9 +174,12 @@ def is_blank(arr: np.ndarray, std_threshold: float = 1.0) -> bool:
 
 
 def predict_array(
-    arr: np.ndarray, filename: str, threshold: float | None = None
+    arr: np.ndarray,
+    filename: str,
+    threshold: float | None = None,
 ) -> PredictionResult:
-    T = UNK_THRESHOLD if threshold is None else threshold
+    """Run model inference and apply the Unknown/review decision logic."""
+    selected_threshold = UNK_THRESHOLD if threshold is None else threshold
 
     if is_blank(arr):
         return PredictionResult(
@@ -120,7 +192,7 @@ def predict_array(
             status="REVIEW",
         )
 
-    # 4-view test-time augmentation, one batched call
+    # Four-view test-time augmentation in one batched model call.
     views = np.concatenate(
         [
             arr,
@@ -138,13 +210,12 @@ def predict_array(
         p_unknown = float(probs[UNKNOWN_ID])
         known_probs = np.delete(probs, UNKNOWN_ID)
         best_known_idx = int(known_probs.argmax())
-        accept = (top != UNKNOWN_ID) and (p_unknown < T)
+        accept = (top != UNKNOWN_ID) and (p_unknown < selected_threshold)
     else:
-        # model has no explicit Unknown class -> fall back to confidence threshold
         top = int(probs.argmax())
         p_unknown = 0.0
         best_known_idx = top
-        accept = float(probs[top]) >= T
+        accept = float(probs[top]) >= selected_threshold
 
     predicted_class = KNOWN_CLASS_NAMES[best_known_idx]
     confidence = float(probs[CLASS_NAMES.index(predicted_class)])
@@ -165,6 +236,7 @@ def predict_array(
 # ----------------------------------------------------------------------
 @app.get("/health")
 def health():
+    """Return model availability, class names and the default threshold."""
     return {
         "status": "ok",
         "model_loaded": True,
@@ -175,8 +247,11 @@ def health():
 
 @app.get("/config")
 def get_config():
-    """So the frontend can show the threshold and let the user tweak it (FR-13)."""
-    return {"class_names": KNOWN_CLASS_NAMES, "default_threshold": UNK_THRESHOLD}
+    """Return the known classes and default review threshold."""
+    return {
+        "class_names": KNOWN_CLASS_NAMES,
+        "default_threshold": UNK_THRESHOLD,
+    }
 
 
 @app.post("/predict", response_model=PredictionResult)
@@ -184,18 +259,52 @@ async def predict_single(
     file: UploadFile = File(...),  # noqa: B008
     threshold: float | None = None,
 ) -> PredictionResult:
-    """FR-8: single image upload -> predicted class + confidence."""
+    """Classify one uploaded image and log prediction metadata."""
+    request_id = str(uuid.uuid4())
+    start = time.perf_counter()
+
     content_type = file.content_type or ""
+    filename = file.filename or "uploaded_image"
 
     if not content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image.")
+
     content = await file.read()
+
     try:
         arr = load_and_prepare(content)
-    except (OSError, ValueError, RuntimeError) as e:
-        raise HTTPException(status_code=400, detail=f"Could not read image: {e}")
-    filename = file.filename or "uploaded_image"
-    return predict_array(arr, filename, threshold)
+        result = predict_array(arr, filename, threshold)
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        log_prediction(
+            request_id=request_id,
+            mode="single",
+            filename=filename,
+            predicted_class=result.predicted_class,
+            confidence=result.confidence,
+            p_unknown=result.p_unknown,
+            final_result=result.final_result,
+            status=result.status,
+            threshold=UNK_THRESHOLD if threshold is None else threshold,
+            processing_time_ms=elapsed_ms,
+        )
+
+        return result
+
+    except (OSError, ValueError, RuntimeError) as exc:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        log_prediction_error(
+            request_id=request_id,
+            mode="single",
+            filename=filename,
+            error=str(exc),
+            processing_time_ms=elapsed_ms,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not read image: {exc}",
+        )
 
 
 @app.post("/predict/bulk", response_model=BulkPredictionResponse)
@@ -203,11 +312,17 @@ async def predict_bulk(
     file: UploadFile = File(...),  # noqa: B008
     threshold: float | None = None,
 ) -> BulkPredictionResponse:
-    """FR-9 + FR-11: zip upload -> results table for every image inside."""
+    """Classify every supported image in a ZIP and log each prediction."""
+    request_id = str(uuid.uuid4())
+    start = time.perf_counter()
+
     filename = file.filename or ""
 
     if not filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="File must be a .zip archive.")
+        raise HTTPException(
+            status_code=400,
+            detail="File must be a .zip archive.",
+        )
 
     content = await file.read()
     results: list[PredictionResult] = []
@@ -216,35 +331,105 @@ async def predict_bulk(
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             names = [
-                n
-                for n in zf.namelist()
-                if Path(n).suffix.lower() in valid_ext and not n.startswith("__MACOSX")
+                name
+                for name in zf.namelist()
+                if Path(name).suffix.lower() in valid_ext
+                and not name.startswith("__MACOSX")
             ]
+
             if not names:
                 raise HTTPException(
-                    status_code=400, detail="No images found inside the zip."
+                    status_code=400,
+                    detail="No images found inside the zip.",
                 )
+
             for name in names:
+                image_start = time.perf_counter()
+                image_name = Path(name).name
+
                 try:
                     img_bytes = zf.read(name)
                     arr = load_and_prepare(img_bytes)
-                    results.append(predict_array(arr, Path(name).name, threshold))
-                except (OSError, ValueError, RuntimeError) as e:
+                    result = predict_array(arr, image_name, threshold)
+                    results.append(result)
+
+                    image_elapsed_ms = (time.perf_counter() - image_start) * 1000
+
+                    log_prediction(
+                        request_id=request_id,
+                        mode="bulk",
+                        filename=image_name,
+                        predicted_class=result.predicted_class,
+                        confidence=result.confidence,
+                        p_unknown=result.p_unknown,
+                        final_result=result.final_result,
+                        status=result.status,
+                        threshold=(UNK_THRESHOLD if threshold is None else threshold),
+                        processing_time_ms=image_elapsed_ms,
+                    )
+
+                except (OSError, ValueError, RuntimeError, KeyError) as exc:
+                    image_elapsed_ms = (time.perf_counter() - image_start) * 1000
+
+                    error_message = str(exc)
+
                     results.append(
                         PredictionResult(
-                            filename=Path(name).name,
+                            filename=image_name,
                             predicted_class="ERROR",
                             confidence=0.0,
                             confidence_percent="0.00%",
                             p_unknown=0.0,
-                            final_result=f"ERROR: {e}",
+                            final_result=f"ERROR: {error_message}",
                             status="REVIEW",
                         )
                     )
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="Invalid zip file.")
 
-    known = sum(1 for r in results if r.status == "KNOWN")
+                    log_prediction_error(
+                        request_id=request_id,
+                        mode="bulk",
+                        filename=image_name,
+                        error=error_message,
+                        processing_time_ms=image_elapsed_ms,
+                    )
+
+    except zipfile.BadZipFile:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        log_prediction_error(
+            request_id=request_id,
+            mode="bulk",
+            filename=filename,
+            error="Invalid zip file.",
+            processing_time_ms=elapsed_ms,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid zip file.",
+        )
+
+    known = sum(1 for result in results if result.status == "KNOWN")
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "bulk_complete",
+                "request_id": request_id,
+                "filename": filename,
+                "total": len(results),
+                "known": known,
+                "review": len(results) - known,
+                "processing_time_ms": round(
+                    (time.perf_counter() - start) * 1000,
+                    2,
+                ),
+            },
+            ensure_ascii=False,
+        )
+    )
+
     return BulkPredictionResponse(
-        total=len(results), known=known, review=len(results) - known, results=results
+        total=len(results),
+        known=known,
+        review=len(results) - known,
+        results=results,
     )
