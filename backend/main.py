@@ -390,9 +390,7 @@ async def predict_bulk(
                 batch_names = names[batch_start : batch_start + BULK_BATCH_SIZE]
                 batch_arrays: list[np.ndarray] = []
                 batch_filenames: list[str] = []
-                batch_results: list[PredictionResult | None] = [
-                    None
-                ] * len(batch_names)
+                batch_results: list[PredictionResult | None] = [None] * len(batch_names)
 
                 for index, name in enumerate(batch_names):
                     image_start = time.perf_counter()
@@ -423,9 +421,7 @@ async def predict_bulk(
                                 final_result=blank_result.final_result,
                                 status=blank_result.status,
                                 threshold=selected_threshold,
-                                processing_time_ms=(
-                                    time.perf_counter() - image_start
-                                )
+                                processing_time_ms=(time.perf_counter() - image_start)
                                 * 1000,
                             )
                             continue
@@ -434,9 +430,7 @@ async def predict_bulk(
                         batch_filenames.append(image_name)
 
                     except (OSError, ValueError, RuntimeError, KeyError) as exc:
-                        image_elapsed_ms = (
-                            time.perf_counter() - image_start
-                        ) * 1000
+                        image_elapsed_ms = (time.perf_counter() - image_start) * 1000
                         error_message = str(exc)
 
                         error_result = PredictionResult(
@@ -464,9 +458,7 @@ async def predict_bulk(
                         batch_filenames,
                         selected_threshold,
                     )
-                    batch_elapsed_ms = (
-                        time.perf_counter() - inference_start
-                    ) * 1000
+                    batch_elapsed_ms = (time.perf_counter() - inference_start) * 1000
 
                     average_image_ms = (
                         batch_elapsed_ms / len(predicted_results)
@@ -494,9 +486,7 @@ async def predict_bulk(
                             processing_time_ms=average_image_ms,
                         )
 
-                results.extend(
-                    result for result in batch_results if result is not None
-                )
+                results.extend(result for result in batch_results if result is not None)
 
     except zipfile.BadZipFile:
         elapsed_ms = (time.perf_counter() - start) * 1000
