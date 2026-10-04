@@ -6,12 +6,6 @@ Built with **TensorFlow/Keras, FastAPI, Streamlit, Docker, GitHub Actions, and M
 
 ---
 
-## 👩‍💻 Author
-
-**Tanvi Jivatode**
-
----
-
 ## 🎯 Project Overview
 
 The system provides an end-to-end workflow for satellite scene classification:
