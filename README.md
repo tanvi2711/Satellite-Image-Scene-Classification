@@ -1,111 +1,101 @@
-# Satellite Scene Classification — Web App
+# 🛰️ Satellite Image Scene Classification
 
-FastAPI backend + Streamlit frontend, built around your trained `.keras` model.
+A production-oriented deep learning application for classifying satellite/aerial scene images using a TensorFlow/Keras image-classification model.
 
-I ran both the backend and the frontend end-to-end before giving you this — the
-`/predict` and `/predict/bulk` endpoints genuinely respond, and the Streamlit
-page genuinely loads. You just need to drop in your real model.
+The system provides a complete workflow from image upload and preprocessing to model inference, confidence evaluation, low-confidence review handling, bulk ZIP classification, automated testing, Dockerization, CI/CD, and deployment on Microsoft Azure.
 
-```
-app_project/
-├── backend/
-│   ├── main.py            <- FastAPI app (the API)
-│   └── requirements.txt
-├── frontend/
-│   ├── app.py              <- Streamlit UI
-│   └── requirements.txt
-└── model/                  <- put your downloaded model files here
-    ├── satellite_v5_final.keras   (you provide this)
-    └── config.json                 (you provide this)
-```
+---
 
-## Step 1 — Get your model out of Kaggle
+## 📌 Project Overview
 
-In your Kaggle notebook, after training finishes, go to the **Output** panel
-(right sidebar) → find `satellite_v5_final.keras` and `config.json` under
-`satellite_v5/models/` → click **Download**.
+Satellite and aerial imagery can contain large amounts of information about different land-use and land-cover scenes. Manually analyzing large collections of images is time-consuming and difficult to scale.
 
-Put both files into the `model/` folder here, so the paths look like:
-```
-app_project/model/satellite_v5_final.keras
-app_project/model/config.json
-```
+This project develops an automated satellite scene classification system that classifies images into predefined scene categories and provides confidence information for every prediction.
 
-If your `config.json` doesn't exist yet, create it manually with this shape
-(matching the class order your model was trained with):
-```json
-{
-  "class_names": ["Forest", "SeaLake", "Desert", "Cloudy", "Unknown"],
-  "unk_threshold": 0.3
-}
-```
+The application supports:
 
-## Step 2 — Open the project in VS Code
+- Single-image classification
+- Bulk ZIP image classification
+- Per-image confidence scores
+- Configurable confidence threshold
+- Low-confidence / review status
+- Unknown / unclassified handling
+- Bulk results table
+- CSV export
+- Test-Time Augmentation (TTA)
+- Batched bulk inference
+- Structured backend logging
+- Automated testing
+- Docker deployment
+- GitHub Actions CI/CD
+- Microsoft Azure deployment
 
-1. Open VS Code → File → Open Folder → select `app_project`.
-2. Open a terminal in VS Code (`` Ctrl+` ``).
-3. Create one virtual environment for the whole project:
-   ```bash
-   python -m venv venv
-   ```
-   - Windows: `venv\Scripts\activate`
-   - Mac/Linux: `source venv/bin/activate`
-4. Install both sets of dependencies:
-   ```bash
-   pip install -r backend/requirements.txt
-   pip install -r frontend/requirements.txt
-   ```
+---
 
-## Step 3 — Run the backend (Terminal 1)
+# 🎯 Project Objectives
 
-```bash
-cd backend
-uvicorn main:app --reload --port 8000
-```
+The main objectives of the project are:
 
-You should see:
-```
-[startup] Model loaded from .../model/satellite_v5_final.keras
-[startup] Classes: [...] | threshold: 0.3
-Uvicorn running on http://127.0.0.1:8000
-```
+1. Develop a multi-class satellite scene classification model.
+2. Normalize and preprocess satellite image inputs.
+3. Evaluate model performance using standard classification metrics.
+4. Provide prediction capability for new and unseen images.
+5. Build a web application for single-image prediction.
+6. Build a bulk ZIP prediction workflow.
+7. Display confidence scores for every prediction.
+8. Flag low-confidence predictions for review.
+9. Implement proper Git branching and Pull Request workflows.
+10. Implement automated CI checks.
+11. Implement automated deployment to Microsoft Azure.
+12. Apply Docker-based application deployment.
+13. Provide application logging and monitoring.
+14. Provide documentation for setup, deployment, architecture, and results.
 
-Check it's alive by opening `http://localhost:8000/health` in a browser, or
-`http://localhost:8000/docs` for the interactive API docs FastAPI generates
-automatically (nice to show your mentor during the demo).
+---
 
-## Step 4 — Run the frontend (Terminal 2, new terminal, same venv)
+# ✨ Key Features
 
-```bash
-cd frontend
-streamlit run app.py
-```
+## 1. Single Image Classification
 
-It opens `http://localhost:8501` automatically. The sidebar should say
-"Backend connected" — if it says "Backend not reachable," the backend from
-Step 3 isn't running or is on a different port.
+Users can upload a single satellite/aerial image through the web application.
 
-## Step 5 — Use it
+The system:
 
-- **Single Image tab:** upload one image chip, click Classify.
-- **Bulk ZIP tab:** upload a `.zip` of images, get a results table + CSV
-  download (FR-11).
-- **Sidebar slider:** adjust the review threshold live (FR-13 — configurable,
-  not hardcoded).
+1. Accepts the uploaded image.
+2. Preprocesses the image.
+3. Runs the trained TensorFlow/Keras model.
+4. Applies prediction logic and confidence evaluation.
+5. Returns the predicted scene class.
+6. Displays the confidence score.
+7. Indicates whether the result requires review.
 
-## Notes for your BRD writeup
+---
 
-- FR-8/FR-9: `/predict` and `/predict/bulk` in `backend/main.py`.
-- FR-10/FR-11: every response includes `confidence`, and bulk returns a full
-  table with per-file results.
-- FR-12/FR-14: `status: "REVIEW"` and `final_result: "UNRECOGNIZED"` are
-  returned instead of a forced guess whenever the model isn't confident.
-- FR-13: threshold is a request parameter (`?threshold=0.3`), not hardcoded —
-  the Streamlit slider passes it live.
+## 2. Bulk ZIP Classification
 
-## Deploying to Azure later
-When you get to that part of the BRD: containerize `backend/` as one Docker
-image (App Service or Container Apps) and `frontend/` as a second image, or
-run both in one container behind a process manager. Point the Streamlit
-`BACKEND_URL` at wherever the backend ends up (an internal Azure URL, not
-`localhost`) before you build that image.
+Users can upload a ZIP file containing multiple satellite images.
+
+The system:
+
+1. Reads the ZIP archive.
+2. Identifies valid image files.
+3. Extracts and preprocesses the images.
+4. Creates Test-Time Augmentation views.
+5. Performs batched inference.
+6. Generates a result for every valid image.
+7. Displays per-image prediction and confidence.
+8. Flags low-confidence results.
+9. Provides a results table.
+10. Allows the results to be downloaded as CSV.
+
+---
+
+## 3. Confidence Score
+
+Every prediction includes a confidence score.
+
+Example:
+
+```text
+Forest
+Confidence: 95.20%
