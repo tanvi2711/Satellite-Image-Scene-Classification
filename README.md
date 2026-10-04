@@ -1,263 +1,201 @@
 # 🛰️ Satellite Image Scene Classification
 
-A production-oriented deep learning application for classifying satellite/aerial scene images using a TensorFlow/Keras image-classification model.
+> **Production-oriented deep learning application for satellite/aerial scene classification using TensorFlow/Keras, FastAPI, Streamlit, Docker, GitHub Actions, and Microsoft Azure.**
 
-The system provides a complete workflow from image upload and preprocessing to model inference, confidence evaluation, low-confidence review handling, bulk ZIP classification, automated testing, Dockerization, CI/CD, and deployment on Microsoft Azure.
-
----
-
-## 📌 Project Overview
-
-Satellite and aerial imagery can contain large amounts of information about different land-use and land-cover scenes. Manually analyzing large collections of images is time-consuming and difficult to scale.
-
-This project develops an automated satellite scene classification system that classifies images into predefined scene categories and provides confidence information for every prediction.
-
-The application supports:
-
-- Single-image classification
-- Bulk ZIP image classification
-- Per-image confidence scores
-- Configurable confidence threshold
-- Low-confidence / review status
-- Unknown / unclassified handling
-- Bulk results table
-- CSV export
-- Test-Time Augmentation (TTA)
-- Batched bulk inference
-- Structured backend logging
-- Automated testing
-- Docker deployment
-- GitHub Actions CI/CD
-- Microsoft Azure deployment
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-FF6F00?logo=tensorflow&logoColor=white)](https://www.tensorflow.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-Frontend-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Azure](https://img.shields.io/badge/Microsoft%20Azure-Cloud-0078D4?logo=microsoftazure&logoColor=white)](https://azure.microsoft.com/)
 
 ---
 
-# 🎯 Project Objectives
+## 📌 Overview
 
-The main objectives of the project are:
+This project is an end-to-end **satellite/aerial image scene classification system**.
 
-1. Develop a multi-class satellite scene classification model.
-2. Normalize and preprocess satellite image inputs.
-3. Evaluate model performance using standard classification metrics.
-4. Provide prediction capability for new and unseen images.
-5. Build a web application for single-image prediction.
-6. Build a bulk ZIP prediction workflow.
-7. Display confidence scores for every prediction.
-8. Flag low-confidence predictions for review.
-9. Implement proper Git branching and Pull Request workflows.
-10. Implement automated CI checks.
-11. Implement automated deployment to Microsoft Azure.
-12. Apply Docker-based application deployment.
-13. Provide application logging and monitoring.
-14. Provide documentation for setup, deployment, architecture, and results.
+It accepts individual images or ZIP archives containing multiple images, preprocesses them, performs TensorFlow/Keras inference, evaluates prediction confidence, and returns the predicted scene class with a review status when confidence is low.
 
----
+The application is packaged with Docker and deployed on **Microsoft Azure Container Apps**, with GitHub Actions providing automated CI/CD.
 
-# ✨ Key Features
+### Supported scene classes
 
-## 1. Single Image Classification
-
-Users can upload a single satellite/aerial image through the web application.
-
-The system:
-
-1. Accepts the uploaded image.
-2. Preprocesses the image.
-3. Runs the trained TensorFlow/Keras model.
-4. Applies prediction logic and confidence evaluation.
-5. Returns the predicted scene class.
-6. Displays the confidence score.
-7. Indicates whether the result requires review.
+| Class |
+|---|
+| 🌲 Forest |
+| 🌊 SeaLake |
+| 🏜️ Desert |
+| ☁️ Cloudy |
+| ❓ Unknown |
 
 ---
 
-## 2. Bulk ZIP Classification
+## ✨ Key Features
 
-Users can upload a ZIP file containing multiple satellite images.
+### 🖼️ Single Image Prediction
+- Upload a satellite/aerial image.
+- Automatic preprocessing and normalization.
+- TensorFlow/Keras inference.
+- Predicted class and confidence score.
+- Low-confidence review handling.
 
-The system:
+### 📦 Bulk ZIP Prediction
+- Upload a ZIP containing multiple images.
+- Validate and process supported image files.
+- Batched inference for improved efficiency.
+- Per-image prediction and confidence.
+- Accepted / review status.
+- Results table.
+- CSV export.
 
-1. Reads the ZIP archive.
-2. Identifies valid image files.
-3. Extracts and preprocesses the images.
-4. Creates Test-Time Augmentation views.
-5. Performs batched inference.
-6. Generates a result for every valid image.
-7. Displays per-image prediction and confidence.
-8. Flags low-confidence results.
-9. Provides a results table.
-10. Allows the results to be downloaded as CSV.
+### 🎯 Confidence & Review Handling
+Predictions are evaluated against a configurable confidence threshold.
 
----
+A prediction that does not meet the configured criteria can be marked:
 
-## 3. Confidence Score
+**Needs Review**
 
-Every prediction includes a confidence score.
+This provides a simple human-review mechanism instead of treating every prediction as equally reliable.
 
-Example:
+### 🔄 Test-Time Augmentation
 
-```text
-Forest
-Confidence: 95.20%
-The confidence information helps users understand how strongly the model supports a prediction.
-4. Configurable Confidence Threshold
-The application supports a configurable threshold for identifying predictions that require review.
-Predictions that do not meet the configured confidence criteria can be marked as:
-Needs Review
+The backend uses four inference views:
 
-This provides a human-review mechanism instead of treating every prediction as equally reliable.
-5. Unknown / Unclassified Handling
-The model includes an Unknown category.
-The prediction logic can also identify cases where an image should not be treated as a confident known-class prediction.
-This helps reduce forced classification of images that may not sufficiently resemble the known scene categories.
-6. Test-Time Augmentation
-The backend uses four prediction views for Test-Time Augmentation:
 1. Original image
 2. Horizontal flip
 3. Vertical flip
-4. 180-degree rotation
-The model predictions from these views are averaged to produce the final prediction probabilities.
-This provides additional robustness during inference.
-7. Batched Bulk Inference
-The bulk prediction pipeline was optimized to avoid running an independent model inference operation for every image.
-Instead, the system:
-Images
-   ↓
-Preprocessing
-   ↓
-TTA Views
-   ↓
-Batch Construction
-   ↓
-TensorFlow Inference
-   ↓
-Average TTA Probabilities
-   ↓
-Per-image Results
+4. 180° rotation
 
-The configured bulk inference batch size is:
-32
+The resulting probabilities are averaged to produce the final prediction.
 
-This reduces repeated inference overhead while keeping memory usage bounded.
-8. Structured Logging
-The backend generates structured logs for prediction requests.
-Logged information includes:
+### ⚡ Batched Inference
+
+Bulk inference uses a configured batch size of **32**.
+
+```text
+ZIP
+ ↓
+Read images
+ ↓
+Preprocess
+ ↓
+Generate 4 TTA views
+ ↓
+Batch TensorFlow inference
+ ↓
+Average TTA probabilities
+ ↓
+Generate per-image results
+```
+
+### 📊 Structured Logging
+
+Backend logs capture prediction metadata such as:
+
 - Request ID
 - Prediction mode
 - Filename
 - Predicted class
 - Confidence
-- Confidence percentage
 - Unknown probability
 - Status
-- Final result
-- Confidence threshold
+- Review result
+- Threshold
 - Processing time
-Image contents are not written into prediction logs.
-Bulk processing also records batch-level information.
-🧠 Machine Learning Model
-Model Framework
-The classification model is implemented using:
+
+Raw image contents are not written to prediction logs.
+
+---
+
+# 🧠 Machine Learning
+
+## Model
+
+The classification system uses:
+
 - TensorFlow
 - Keras
-- Transfer learning
 - CNN-based image classification
+- Transfer learning
 - Regularization
 - Training-time augmentation
 - Test-Time Augmentation during inference
-Model Artifact
-The trained model is stored at:
-model/satellite_v5_final.keras
 
-Model configuration:
-model/config.json
+### Model files
 
-Input Size
-The model expects images normalized to:
+```text
+model/
+├── satellite_v5_final.keras
+└── config.json
+```
+
+### Input size
+
+```text
 224 × 224 pixels
+```
 
-🏷️ Scene Classes
-The current model contains the following classes:
-Forest
-SeaLake
-Desert
-Cloudy
-Unknown
+---
 
-📊 Model Evaluation
-The current evaluation was performed using:
-400 labeled known-class test images
-100 images per known class
+# 📊 Model Performance
 
-Overall Known-Class Accuracy
-95.25%
-381 / 400 correctly classified
-19 / 400 incorrectly classified
+The current evaluation uses **400 labeled known-class test images**, with 100 images per known class.
 
-Classification Results
-Class	Precision	Recall	F1-Score	Support
-Forest	100.00%	95.00%	97.44%	100
-SeaLake	96.00%	96.00%	96.00%	100
-Desert	96.00%	96.00%	96.00%	100
-Cloudy	100.00%	94.00%	96.91%	100
-Unknown	0.00%	0.00%	0.00%	0
+## ⭐ Known-Class Accuracy
 
+# **95.25%**
 
-Overall Metrics
-Metric	Score
-Accuracy	95.25%
-Weighted Precision	98.00%
-Weighted Recall	95.25%
-Weighted F1-Score	96.59%
+**381 / 400** predictions were correct.
 
+**19 / 400** predictions were incorrect.
 
-📌 Evaluation Interpretation
-The model achieved:
-95.25% accuracy on 400 known-class test images.
-This corresponds to:
-381 correct predictions
-19 incorrect predictions
+### Classification metrics
 
-Per-class performance is consistently strong:
-- Forest F1-score: 97.44%
-- SeaLake F1-score: 96.00%
-- Desert F1-score: 96.00%
-- Cloudy F1-score: 96.91%
-The Unknown class has zero support in this evaluation set because no labeled Unknown samples were included in the reported test dataset.
-Therefore:
-95.25% should be interpreted as known-class test accuracy on 400 labeled images, not as five-class accuracy on a test set containing labeled Unknown samples.
+| Class | Precision | Recall | F1-Score | Support |
+|---|---:|---:|---:|---:|
+| Forest | 100.00% | 95.00% | 97.44% | 100 |
+| SeaLake | 96.00% | 96.00% | 96.00% | 100 |
+| Desert | 96.00% | 96.00% | 96.00% | 100 |
+| Cloudy | 100.00% | 94.00% | 96.91% | 100 |
+| Unknown | 0.00% | 0.00% | 0.00% | 0 |
 
-📈 Confusion Matrix
-The confusion matrix shows strong diagonal performance across the evaluated known classes.
-Known-class results:
-Forest
-95 / 100 correctly classified
+### Overall metrics
 
-SeaLake
-96 / 100 correctly classified
+| Metric | Score |
+|---|---:|
+| Accuracy | **95.25%** |
+| Weighted Precision | **98.00%** |
+| Weighted Recall | **95.25%** |
+| Weighted F1-Score | **96.59%** |
 
-Desert
-96 / 100 correctly classified
+> **Important:** 95.25% is the accuracy on the 400 labeled **known-class** test images. The reported evaluation set contains no labeled `Unknown` samples, so this should not be described as overall five-class accuracy.
 
-Cloudy
-94 / 100 correctly classified
+### Per-class performance
 
-Some known images are classified as Unknown, which is consistent with the application's conservative low-confidence/unclassified handling.
-🏗️ System Architecture
+- **Forest:** F1 = 97.44%
+- **SeaLake:** F1 = 96.00%
+- **Desert:** F1 = 96.00%
+- **Cloudy:** F1 = 96.91%
 
+---
+
+# 🏗️ System Architecture
+
+```text
                          ┌─────────────────────┐
-                         │        User         │
-                         │ Web / Mobile Browser │
+                         │        USER         │
+                         │  Desktop / Mobile   │
                          └──────────┬──────────┘
                                     │
                                     ▼
                          ┌─────────────────────┐
                          │ Streamlit Frontend  │
                          │                     │
-                         │ Single Upload       │
-                         │ Bulk ZIP Upload     │
+                         │ • Single Upload     │
+                         │ • Bulk ZIP Upload   │
+                         │ • Results / CSV     │
                          └──────────┬──────────┘
-                                    │
                                     │ HTTP
                                     ▼
                          ┌─────────────────────┐
@@ -267,6 +205,15 @@ Some known images are classified as Unknown, which is consistent with the applic
                          │ /predict            │
                          │ /predict/bulk       │
                          │ /config             │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │ Image Preprocessing │
+                         │                     │
+                         │ 224 × 224           │
+                         │ Normalization       │
+                         │ TTA                 │
                          └──────────┬──────────┘
                                     │
                                     ▼
@@ -284,92 +231,101 @@ Some known images are classified as Unknown, which is consistent with the applic
                          │ Confidence          │
                          │ Review Status       │
                          └─────────────────────┘
+```
 
-☁️ Azure Architecture
-The application is deployed using Microsoft Azure.
-Main Azure services used/provisioned include:
-- Azure Container Apps
-- Azure Container Registry
-- Azure Blob Storage
-- Azure Key Vault
-- Azure Managed Identity
-- Azure Log Analytics
-Production deployment flow:
+---
 
-                        GitHub Repository
-                               │
-                               ▼
-                        GitHub Actions
-                               │
-                    ┌──────────┴──────────┐
-                    │                     │
-                 CI Checks            Docker Build
-                    │                     │
+# ☁️ Azure Deployment Architecture
+
+```text
+                    ┌─────────────────────┐
+                    │       GitHub        │
+                    │     Repository      │
                     └──────────┬──────────┘
                                │
                                ▼
-                    Azure Container Registry
+                    ┌─────────────────────┐
+                    │   GitHub Actions    │
+                    │                     │
+                    │ Ruff / Mypy         │
+                    │ Pytest / Coverage   │
+                    │ Docker Build        │
+                    └──────────┬──────────┘
                                │
-                    ┌──────────┴──────────┐
+                         Merge to main
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │ Azure Container     │
+                    │ Registry (ACR)      │
                     │                     │
-             Backend Image        Frontend Image
-                    │                     │
+                    │ Backend Image       │
+                    │ Frontend Image      │
                     └──────────┬──────────┘
                                │
                                ▼
-                    Azure Container Apps
-                    ┌──────────┴──────────┐
+             ┌──────────────────────────────────┐
+             │      Azure Container Apps        │
+             │                                  │
+             │  ┌────────────────────────────┐  │
+             │  │ satellite-frontend         │  │
+             │  │ Streamlit                  │  │
+             │  └─────────────┬──────────────┘  │
+             │                │                 │
+             │                ▼                 │
+             │  ┌────────────────────────────┐  │
+             │  │ satellite-backend          │  │
+             │  │ FastAPI + TensorFlow       │  │
+             │  └────────────────────────────┘  │
+             └────────────────┬─────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │   Log Analytics     │
                     │                     │
-          satellite-backend       satellite-frontend
-                    │                     │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                       Log Analytics
-☁️ Azure Resources
-Azure Container Registry
-Container images are stored in Azure Container Registry.
-Images include:
-satellite-backend
-satellite-frontend
+                    │ Application Logs    │
+                    │ Prediction Logs     │
+                    │ Error Logs          │
+                    └─────────────────────┘
+```
 
-Azure Container Apps
-Two Container Apps are used:
-satellite-backend
-satellite-frontend
+## Azure services
 
-The frontend is externally accessible.
-The backend is configured for internal application communication.
-Azure Blob Storage
-An Azure Blob Storage account and container have been provisioned for the project environment.
-The BRD specifies Azure Blob Storage for satellite image data, processed data, and model artifacts.
-The current end-user prediction flow, however, directly processes uploaded files through the web application and FastAPI backend rather than using Blob Storage as an intermediate upload store.
-Azure Key Vault
-Azure Key Vault has been provisioned for secure secret management.
-The project avoids committing credentials or API keys to the Git repository.
-Azure Managed Identity
-Managed Identity is used for Azure resource authentication and supports the least-privilege access approach required by the BRD.
-Azure Log Analytics
-Container and application logs are collected and queried using Azure Log Analytics.
-This provides visibility into:
-- Application startup
-- Health checks
-- Predictions
-- Bulk inference
-- Processing times
-- Errors
-- Batch processing
-🔐 Security
-Security-related practices include:
-- No API keys or credentials committed to Git.
-- Azure federated identity/OIDC for GitHub Actions authentication.
-- Managed Identity for Azure resource access.
-- Azure RBAC for permissions.
-- Azure Key Vault provisioned for secure secret management.
-- Uploaded images are processed for prediction rather than intentionally stored permanently by the prediction application.
-- Application logs record prediction metadata rather than raw image content.
-🔀 Git Branching Strategy
-The project follows a feature-based Git workflow.
+| Service | Purpose |
+|---|---|
+| Azure Container Apps | Hosts frontend and backend |
+| Azure Container Registry | Stores Docker images |
+| Azure Blob Storage | Provisioned project storage |
+| Azure Key Vault | Secure secret-management infrastructure |
+| Managed Identity | Azure resource authentication |
+| Azure RBAC | Access control |
+| Log Analytics | Application/container logging |
+
+### Production application flow
+
+```text
+GitHub
+  ↓
+GitHub Actions
+  ↓
+Azure OIDC Authentication
+  ↓
+Build Docker Images
+  ↓
+Push Images to ACR
+  ↓
+Update Container Apps
+  ↓
+Production
+```
+
+---
+
+# 🔀 Git Branching Strategy
+
+The project follows a feature-based Git workflow:
+
+```text
 main
  │
  ▼
@@ -378,33 +334,31 @@ develop
  ├── feature/*
  ├── bugfix/*
  └── hotfix/*
+```
 
-Changes are developed on feature or bug-fix branches and merged using Pull Requests.
-Typical workflow:
+Typical development flow:
+
+```text
 Feature Branch
-      │
-      ▼
+      ↓
 Pull Request
-      │
-      ▼
+      ↓
 Automated CI
-      │
-      ▼
+      ↓
 develop
-      │
-      ▼
+      ↓
 Pull Request
-      │
-      ▼
+      ↓
 main
-      │
-      ▼
+      ↓
 Automated CD
-      │
-      ▼
+      ↓
 Azure
+```
 
-The project uses conventional commit categories such as:
+Conventional commit categories used include:
+
+```text
 feat
 fix
 docs
@@ -412,46 +366,61 @@ test
 refactor
 style
 chore
+```
 
-🔄 CI/CD Pipeline
-Continuous Integration
-GitHub Actions performs automated quality checks.
-The CI workflow includes:
+---
+
+# 🔄 CI/CD
+
+## Continuous Integration
+
+GitHub Actions validates changes using:
+
 - Ruff linting
 - Ruff formatting checks
 - Mypy type checking
 - Pytest
 - Coverage validation
 - Docker image builds
-CI checks are executed for relevant pushes and Pull Requests.
-Continuous Deployment
-The deployment workflow is triggered after changes reach the main branch.
-The deployment process is:
+
+CI runs for relevant pushes and Pull Requests.
+
+## Continuous Deployment
+
+After changes reach `main`:
+
+```text
 Merge to main
       ↓
 GitHub Actions
       ↓
-Azure OIDC Authentication
+Azure OIDC Login
       ↓
-Azure Container Registry Login
+ACR Login
       ↓
 Build Backend Image
       ↓
 Build Frontend Image
       ↓
-Push Images to ACR
+Push Images
       ↓
 Update Backend Container App
       ↓
 Update Frontend Container App
       ↓
 Production Deployment
+```
 
-The production CD workflow has been successfully executed.
-🐳 Docker
-The application is containerized for consistent deployment.
-Backend Container
-The backend container contains:
+---
+
+# 🐳 Docker
+
+The project uses separate containers for the frontend and backend.
+
+## Backend
+
+Includes:
+
 - Python
 - FastAPI
 - TensorFlow CPU
@@ -461,70 +430,32 @@ The backend container contains:
 - Pydantic
 - Backend application
 - Trained model
-The backend exposes:
-Port 8000
 
-Frontend Container
-The frontend container contains:
+**Port:** `8000`
+
+## Frontend
+
+Includes:
+
 - Python
 - Streamlit
 - Requests
 - Pandas
 - Frontend application
-The frontend exposes:
-Port 8501
 
-💻 Local Setup
-Prerequisites
-Install:
-- Python 3.11
-- Git
-- Docker Desktop
-- Docker Compose
-1. Clone the Repository
-git clone https://github.com/tanvi2711/Satellite-Image-Scene-Classification.git
+**Port:** `8501`
 
-Move into the project:
-cd Satellite-Image-Scene-Classification
+Run locally with Docker Compose:
 
-2. Backend Setup
-Create a virtual environment:
-python -m venv venv
-
-Activate it on Windows:
-venv\Scripts\activate
-
-Install backend dependencies:
-pip install -r backend/requirements.txt
-
-Start the FastAPI server:
-uvicorn backend.main:app --reload --port 8000
-
-Backend URL:
-http://localhost:8000
-
-Health endpoint:
-http://localhost:8000/health
-
-3. Frontend Setup
-Install frontend dependencies:
-pip install -r frontend/requirements.txt
-
-Set the backend URL in PowerShell:
-$env:BACKEND_URL="http://localhost:8000"
-
-Run Streamlit:
-streamlit run frontend/app.py
-
-Frontend URL:
-http://localhost:8501
-
-4. Run Using Docker Compose
-Build and start both services:
+```bash
 docker compose up --build
+```
 
-The frontend communicates with the backend using the Docker Compose service network.
-📁 Project Structure
+---
+
+# 📁 Project Structure
+
+```text
 Satellite-Image-Scene-Classification/
 │
 ├── backend/
@@ -556,52 +487,150 @@ Satellite-Image-Scene-Classification/
 ├── .dockerignore
 ├── README.md
 └── ...
+```
 
-🔌 API Endpoints
-GET /health
-Health-check endpoint used to verify that the backend service is running.
-Example:
-GET /health
+---
 
-POST /predict
-Single-image prediction endpoint.
-Example:
-POST /predict
+# 🚀 Local Setup
 
-The endpoint accepts an uploaded image and returns prediction information including class, confidence and status.
-POST /predict/bulk
-Bulk ZIP prediction endpoint.
-Example:
-POST /predict/bulk
+## Prerequisites
 
-The endpoint accepts a ZIP file containing multiple images and returns per-image classification results.
-GET /config
-Returns prediction configuration information.
-Example:
-GET /config
+Install:
 
-🧪 Testing
-Automated tests are included for:
-- Backend health endpoint
+- Python 3.11
+- Git
+- Docker Desktop
+- Docker Compose
+
+## 1. Clone
+
+```bash
+git clone https://github.com/tanvi2711/Satellite-Image-Scene-Classification.git
+cd Satellite-Image-Scene-Classification
+```
+
+## 2. Backend
+
+Create a virtual environment:
+
+```bash
+python -m venv venv
+```
+
+Windows:
+
+```powershell
+venv\Scripts\activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r backend/requirements.txt
+```
+
+Start FastAPI:
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+Backend:
+
+```text
+http://localhost:8000
+```
+
+Health check:
+
+```text
+http://localhost:8000/health
+```
+
+## 3. Frontend
+
+Install dependencies:
+
+```bash
+pip install -r frontend/requirements.txt
+```
+
+Set the backend URL in PowerShell:
+
+```powershell
+$env:BACKEND_URL="http://localhost:8000"
+```
+
+Start Streamlit:
+
+```bash
+streamlit run frontend/app.py
+```
+
+Frontend:
+
+```text
+http://localhost:8501
+```
+
+---
+
+# 🔌 API Endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/health` | Backend health check |
+| `POST` | `/predict` | Single-image prediction |
+| `POST` | `/predict/bulk` | ZIP/bulk prediction |
+| `GET` | `/config` | Prediction configuration |
+
+### `POST /predict`
+
+Accepts an uploaded image and returns:
+
+- Predicted class
+- Confidence
+- Status/review information
+
+### `POST /predict/bulk`
+
+Accepts a ZIP archive containing images and returns per-image results.
+
+---
+
+# 🧪 Testing
+
+Automated tests cover:
+
+- Health endpoint
 - Single-image prediction
 - Bulk prediction
-Test files:
+
+```text
 tests/
 ├── conftest.py
 ├── test_health.py
 ├── test_predict.py
 └── test_bulk.py
+```
 
 Run tests:
+
+```bash
 pytest
+```
 
-Run tests with coverage:
+Run with coverage:
+
+```bash
 pytest --cov
+```
 
-The CI pipeline also validates the project's automated test suite.
+---
 
-📊 Evaluation Workflow
-The evaluation process includes:
+# 📈 Evaluation Workflow
+
+```text
 Test Dataset
      ↓
 Image Preprocessing
@@ -617,59 +646,54 @@ Confidence Evaluation
 Classification Metrics
      ↓
 Confusion Matrix
+```
 
-Reported evaluation metrics include:
+Reported metrics:
+
 - Accuracy
 - Precision
 - Recall
 - F1-score
 - Confusion matrix
-📋 Bulk Result Workflow
-For every valid image inside a ZIP archive, the application produces information such as:
-Filename
-Predicted Class
-Confidence
-Status
 
-Example:
-image_001.jpg
-Forest
-95.20%
-Accepted
+---
 
-or:
-image_002.jpg
-Unknown
-18.40%
-Needs Review
+# ⚡ Performance Optimization
 
-⚡ Performance Optimization
-The original bulk inference approach performed repeated model prediction operations for individual images.
-The implementation was optimized to use batched inference.
-Current approach:
+Bulk inference was optimized from repeated individual model prediction calls to batched inference.
+
+Current pipeline:
+
+```text
 ZIP
  ↓
-Read images
+Read Images
  ↓
 Preprocess
  ↓
-Generate 4 TTA views per image
+Generate 4 TTA Views
  ↓
-Combine views
+Batch TensorFlow Prediction
  ↓
-Batch TensorFlow prediction
+Average Probabilities
  ↓
-Average probabilities
- ↓
-Generate individual results
+Generate Individual Results
+```
 
-The configured batch size is:
+Configured batch size:
+
+```text
 32
+```
 
-This reduces repeated model invocation overhead and improves bulk processing efficiency.
+This reduces repeated model invocation overhead while keeping batch memory bounded.
 
-📱 Production Testing
+---
+
+# 📱 Production Testing
+
 The deployed application has been tested with:
+
 - Desktop browser
 - Mobile browser
 - Single image upload
@@ -678,13 +702,20 @@ The deployed application has been tested with:
 - Prediction results
 - Confidence display
 - Low-confidence handling
-A Streamlit session-routing issue affecting production file uploads was resolved by enabling session affinity on the frontend Azure Container App.
-The production upload flow has been retested successfully after the configuration change.
 
-📈 Monitoring
-The backend writes structured logs to standard output.
-Azure Container Apps collects these logs through Log Analytics.
-Example logged fields:
+A Streamlit session-routing issue affecting production file uploads was resolved by enabling **session affinity** on the frontend Azure Container App.
+
+The production upload flow was retested successfully after the configuration change.
+
+---
+
+# 📊 Monitoring & Logging
+
+Backend logs are written to standard output and collected by Azure Log Analytics.
+
+Example fields include:
+
+```text
 event
 request_id
 mode
@@ -697,67 +728,83 @@ status
 final_result
 threshold
 processing_time_ms
+```
 
-For bulk processing, batch-level information is also recorded.
-This enables operational troubleshooting without storing raw image data in the logs.
+Bulk processing also records batch-level information.
 
-📝 BRD Alignment
-The project was developed against the requirements defined in the Business Requirements Document.
-Functional Requirements
-Requirement	Status
-Multi-class classification	✅ Implemented
-Image preprocessing / normalization	✅ Implemented
-Model evaluation	✅ Implemented
-Prediction on unseen images	✅ Implemented
-Single-image upload	✅ Implemented
-Bulk ZIP upload	✅ Implemented
-Confidence score	✅ Implemented
-Bulk result table	✅ Implemented
-Configurable confidence threshold	✅ Implemented
-Low-confidence review handling	✅ Implemented
-Unknown / unclassified handling	✅ Implemented
+This provides operational visibility while avoiding raw image content in prediction logs.
 
+---
 
-Engineering Requirements
-Requirement	Status
-PEP 8 / automated linting	✅
-Type checking	✅
-Unit testing	✅
-Coverage validation	✅
-No hardcoded secrets	✅
-Docker	✅
-Git branching	✅
-Pull Requests	✅
-CI pipeline	✅
-CD pipeline	✅
-Azure deployment	✅
-Managed Identity / RBAC	✅
-Azure logging	✅
+# 🔐 Security
 
+Security practices include:
 
-BRD Items Requiring Separate Consideration
-Azure Blob Storage Ingestion
-Azure Blob Storage has been provisioned as part of the project Azure environment.
-However, the current end-user prediction flow is:
-User Upload
-    ↓
-Streamlit
-    ↓
-FastAPI
-    ↓
-Model
+- No API keys or credentials committed to Git.
+- GitHub Actions uses Azure OIDC authentication.
+- Managed Identity is used for Azure resource authentication.
+- Azure RBAC controls resource access.
+- Azure Key Vault is provisioned for secure secret management.
+- Prediction logs contain metadata rather than raw image data.
 
-The application does not currently use Azure Blob Storage as an intermediate storage location for every user-uploaded prediction image.
-Therefore, this README does not claim direct Blob-based prediction ingestion as an implemented feature.
-Grad-CAM
-Grad-CAM/explainability visualization was identified as an optional Could Have requirement in the BRD and is not included in the current production implementation.
+---
 
-🔮 Future Improvements
-Possible future enhancements include:
+# 📋 BRD Alignment
+
+The project addresses the core application and engineering requirements defined in the BRD.
+
+### Functional requirements
+
+| Requirement | Status |
+|---|---|
+| Multi-class classification | ✅ |
+| Image preprocessing | ✅ |
+| Model evaluation | ✅ |
+| Unseen-image prediction | ✅ |
+| Single-image upload | ✅ |
+| Bulk ZIP upload | ✅ |
+| Confidence score | ✅ |
+| Bulk result table | ✅ |
+| Configurable threshold | ✅ |
+| Low-confidence review | ✅ |
+| Unknown/unclassified handling | ✅ |
+
+### Engineering requirements
+
+| Requirement | Status |
+|---|---|
+| Automated linting | ✅ |
+| Type checking | ✅ |
+| Unit testing | ✅ |
+| Coverage validation | ✅ |
+| No hardcoded secrets | ✅ |
+| Docker | ✅ |
+| Git branching | ✅ |
+| Pull Requests | ✅ |
+| CI | ✅ |
+| CD | ✅ |
+| Azure deployment | ✅ |
+| Managed Identity / RBAC | ✅ |
+| Azure logging | ✅ |
+
+### Current BRD considerations
+
+**Azure Blob Storage:** The Azure Blob Storage environment has been provisioned. The current prediction flow directly processes user uploads through Streamlit and FastAPI rather than using Blob Storage as an intermediate upload store.
+
+**Grad-CAM:** Grad-CAM/explainability was identified as an optional requirement and is not part of the current production implementation.
+
+These items are therefore not represented as completed features.
+
+---
+
+# 🔮 Future Improvements
+
+Potential future enhancements:
+
 1. Dedicated Azure Blob Storage ingestion pipeline.
-2. Dedicated labeled Unknown/OOD evaluation dataset.
+2. Dedicated labeled `Unknown` / OOD evaluation dataset.
 3. Confidence calibration.
-4. Grad-CAM explainability visualization.
+4. Grad-CAM explainability.
 5. Additional monitoring dashboards.
 6. Automated model versioning.
 7. Experiment tracking.
@@ -765,8 +812,13 @@ Possible future enhancements include:
 9. Expanded scene categories.
 10. Larger and more diverse evaluation datasets.
 
-🎯 Project Outcome
-The project demonstrates an end-to-end machine learning engineering workflow:
+---
+
+# 🎯 Project Outcome
+
+This project demonstrates an end-to-end machine learning engineering workflow:
+
+```text
 Dataset
    ↓
 Preprocessing
@@ -792,18 +844,26 @@ Azure Container Apps
 Production Application
    ↓
 Monitoring / Logging
+```
 
-The resulting application provides a practical interface for satellite scene classification while demonstrating machine learning, backend development, frontend development, containerization, cloud deployment, CI/CD, testing, and monitoring.
+The result is a production-oriented satellite scene classification application combining:
 
-👤 Project Author
-Tanvi Jivatode
+**Machine Learning + Backend Development + Web UI + Docker + CI/CD + Cloud Deployment + Monitoring**
 
-Project:
-Satellite Image Scene Classification
+---
 
-📌 Project Status
-Production Internship Submission
-The current project includes:
+# 👤 Author
+
+**Nishant**
+
+**Project:** Satellite Image Scene Classification
+
+---
+
+## 📌 Project Status
+
+**Production Internship Submission**
+
 - ✅ Trained classification model
 - ✅ Model evaluation
 - ✅ 95.25% known-class test accuracy
@@ -813,7 +873,7 @@ The current project includes:
 - ✅ Configurable review threshold
 - ✅ Unknown / unclassified handling
 - ✅ CSV export
-- ✅ Premium Streamlit UI
+- ✅ Streamlit UI
 - ✅ FastAPI backend
 - ✅ Batched bulk inference
 - ✅ Structured logging
@@ -832,18 +892,10 @@ The current project includes:
 - ✅ Azure Log Analytics
 - ✅ Production deployment
 - ✅ Mobile upload tested
-- ✅ Production file-upload session issue resolved
+- ✅ Production upload issue resolved
 
-📄 License
+---
+
+## 📄 License
+
 This project was developed as part of an internship project and is intended for educational, demonstration, and internship evaluation purposes.
-
-
-### Important
-
-This is the **complete README**, not a partial draft.
-
-And I intentionally made the BRD section honest: **we will not write that Blob ingestion is implemented when the current application doesn't actually do it.** That protects you if your lead asks about it.
-
-For the **README itself, don't make any more code changes**. Paste this entire content into `README.md`.
-
-After that, our documentation work can move to the next deliverable **without touching the working application**.
