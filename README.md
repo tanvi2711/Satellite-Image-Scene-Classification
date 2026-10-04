@@ -854,7 +854,7 @@ The result is a production-oriented satellite scene classification application c
 
 # 👤 Author
 
-**Nishant**
+**Tanvi Jivatode**
 
 **Project:** Satellite Image Scene Classification
 
