@@ -34,7 +34,10 @@ try:
         ResourceExistsError,
         ResourceNotFoundError,
     )
-    from azure.data.tables import TableClient, UpdateMode  # type: ignore[import-untyped]
+    from azure.data.tables import (  # type: ignore[import-untyped]
+        TableClient,
+        UpdateMode,
+    )
     from azure.identity import DefaultAzureCredential  # type: ignore[import-untyped]
 
     AZURE_SDK_AVAILABLE = True
