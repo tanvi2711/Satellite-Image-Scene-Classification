@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATABASE_URL = "sqlite:///./prediction_logs.db"
 
@@ -16,12 +16,13 @@ SessionLocal = sessionmaker(
     bind=engine,
 )
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 class PredictionLog(Base):
     __tablename__ = "prediction_logs"
-
     id = Column(Integer, primary_key=True, index=True)
 
     event = Column(String(50))
