@@ -664,7 +664,6 @@ async def predict_bulk(
 
                 results.extend(result for result in batch_results if result is not None)
 
-
     except zipfile.BadZipFile:
         elapsed_ms = (time.perf_counter() - start) * 1000
         log_prediction_error(

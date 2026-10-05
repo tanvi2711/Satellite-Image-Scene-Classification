@@ -268,9 +268,7 @@ class AzureTablePredictionCache(BasePredictionCache):
             elif self.storage_account:
                 endpoint = f"https://{self.storage_account}.table.core.windows.net"
                 credential = (
-                    DefaultAzureCredential(
-                        managed_identity_client_id=self.client_id
-                    )
+                    DefaultAzureCredential(managed_identity_client_id=self.client_id)
                     if self.client_id
                     else DefaultAzureCredential()
                 )
@@ -317,9 +315,7 @@ class AzureTablePredictionCache(BasePredictionCache):
         except ResourceNotFoundError:
             return None
         except (HttpResponseError, OSError, ValueError, KeyError) as exc:
-            logger.warning(
-                f"Azure Table cache get error for {image_hash[:8]}: {exc}"
-            )
+            logger.warning(f"Azure Table cache get error for {image_hash[:8]}: {exc}")
             return None
 
     def set(
@@ -345,9 +341,7 @@ class AzureTablePredictionCache(BasePredictionCache):
             self._table_client.upsert_entity(entity=entity, mode=UpdateMode.REPLACE)
             return True
         except (HttpResponseError, OSError, ValueError) as exc:
-            logger.warning(
-                f"Azure Table cache set error for {image_hash[:8]}: {exc}"
-            )
+            logger.warning(f"Azure Table cache set error for {image_hash[:8]}: {exc}")
             return False
 
     def clear(self) -> None:
@@ -389,4 +383,3 @@ def get_prediction_cache() -> BasePredictionCache:
 
     logger.info("Prediction cache initialized: SQLitePredictionCache (local)")
     return SQLitePredictionCache()
-
