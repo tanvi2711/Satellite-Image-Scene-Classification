@@ -30,3 +30,6 @@ evaluation/results/
 
 # Jupyter
 .ipynb_checkpoints/
+.cache/
+
+prediction_logs.db

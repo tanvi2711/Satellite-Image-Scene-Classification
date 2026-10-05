@@ -11,6 +11,7 @@ Run with:
     uvicorn backend.main:app --reload --port 8000
 """
 
+import hashlib
 import io
 import json
 import logging
@@ -24,7 +25,10 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 from tensorflow import keras
+
+from backend.database import PredictionLog, SessionLocal
 
 # ----------------------------------------------------------------------
 # CONFIG
@@ -46,11 +50,17 @@ logging.basicConfig(
 logger = logging.getLogger("satellite_classifier")
 
 
+def calculate_image_hash(image_bytes: bytes) -> str:
+    """Create a unique SHA-256 fingerprint for the uploaded image."""
+    return hashlib.sha256(image_bytes).hexdigest()
+
+
 def log_prediction(
     *,
     request_id: str,
     mode: str,
     filename: str,
+    image_hash: str,
     predicted_class: str,
     confidence: float,
     p_unknown: float,
@@ -75,6 +85,45 @@ def log_prediction(
         "processing_time_ms": round(processing_time_ms, 2),
     }
     logger.info(json.dumps(log_record, ensure_ascii=False))
+
+    db = SessionLocal()
+
+    try:
+        db_log = PredictionLog(
+            event="prediction",
+            request_id=request_id,
+            mode=mode,
+            filename=filename,
+            image_hash=image_hash,
+            predicted_class=predicted_class,
+            confidence=round(confidence, 6),
+            confidence_percent=round(confidence * 100, 2),
+            p_unknown=round(p_unknown, 6),
+            status=status,
+            final_result=final_result,
+            threshold=round(threshold, 6),
+            processing_time_ms=round(processing_time_ms, 2),
+            cache_hit=False,
+        )
+
+        db.add(db_log)
+        db.commit()
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.error(
+            json.dumps(
+                {
+                    "event": "database_error",
+                    "request_id": request_id,
+                    "error": str(exc),
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    finally:
+        db.close()
 
 
 def log_prediction_error(
@@ -310,6 +359,59 @@ async def predict_single(
         raise HTTPException(status_code=400, detail="File must be an image.")
 
     content = await file.read()
+    image_hash = calculate_image_hash(content)
+
+    db = SessionLocal()
+
+    try:
+        cached_log = (
+            db.query(PredictionLog)
+            .filter(
+                PredictionLog.image_hash == image_hash,
+                PredictionLog.event == "prediction",
+                PredictionLog.threshold
+                == (UNK_THRESHOLD if threshold is None else threshold),
+            )
+            .order_by(PredictionLog.id.desc())
+            .first()
+        )
+
+        if cached_log:
+            processing_time_ms = (time.perf_counter() - start) * 1000
+
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "cache_hit",
+                        "request_id": request_id,
+                        "mode": "single",
+                        "filename": file.filename,
+                        "image_hash": image_hash,
+                        "predicted_class": cached_log.predicted_class,
+                        "confidence": cached_log.confidence,
+                        "final_result": cached_log.final_result,
+                        "processing_time_ms": round(processing_time_ms, 2),
+                    }
+                )
+            )
+
+            return {
+                "success": True,
+                "request_id": request_id,
+                "filename": file.filename,
+                "predicted_class": cached_log.predicted_class,
+                "confidence": cached_log.confidence,
+                "confidence_percent": f"{cached_log.confidence_percent:.2f}%",
+                "p_unknown": cached_log.p_unknown,
+                "status": cached_log.status,
+                "final_result": cached_log.final_result,
+                "threshold": cached_log.threshold,
+                "processing_time_ms": round(processing_time_ms, 2),
+                "cache_hit": True,
+            }
+
+    finally:
+        db.close()
 
     try:
         arr = load_and_prepare(content)
@@ -321,6 +423,7 @@ async def predict_single(
             request_id=request_id,
             mode="single",
             filename=filename,
+            image_hash=image_hash,
             predicted_class=result.predicted_class,
             confidence=result.confidence,
             p_unknown=result.p_unknown,
@@ -390,6 +493,7 @@ async def predict_bulk(
                 batch_names = names[batch_start : batch_start + BULK_BATCH_SIZE]
                 batch_arrays: list[np.ndarray] = []
                 batch_filenames: list[str] = []
+                batch_hashes: list[str] = []
                 batch_results: list[PredictionResult | None] = [None] * len(batch_names)
 
                 for index, name in enumerate(batch_names):
@@ -398,6 +502,55 @@ async def predict_bulk(
 
                     try:
                         img_bytes = zf.read(name)
+                        image_hash = calculate_image_hash(img_bytes)
+
+                        db = SessionLocal()
+
+                        try:
+                            cached_log = (
+                                db.query(PredictionLog)
+                                .filter(
+                                    PredictionLog.image_hash == image_hash,
+                                    PredictionLog.event == "prediction",
+                                    PredictionLog.threshold == selected_threshold,
+                                )
+                                .order_by(PredictionLog.id.desc())
+                                .first()
+                            )
+                        finally:
+                            db.close()
+
+                        if cached_log:
+                            cached_result = PredictionResult(
+                                filename=image_name,
+                                predicted_class=cached_log.predicted_class,
+                                confidence=cached_log.confidence,
+                                confidence_percent=cached_log.confidence_percent,
+                                p_unknown=cached_log.p_unknown,
+                                final_result=cached_log.final_result,
+                                status=cached_log.status,
+                            )
+
+                            batch_results[index] = cached_result
+
+                            logger.info(
+                                json.dumps(
+                                    {
+                                        "event": "cache_hit",
+                                        "request_id": request_id,
+                                        "mode": "bulk",
+                                        "filename": image_name,
+                                        "image_hash": image_hash,
+                                        "predicted_class": cached_log.predicted_class,
+                                        "confidence": cached_log.confidence,
+                                        "final_result": cached_log.final_result,
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            )
+
+                            continue
+
                         arr = load_and_prepare(img_bytes)
 
                         if is_blank(arr):
@@ -415,6 +568,7 @@ async def predict_bulk(
                                 request_id=request_id,
                                 mode="bulk",
                                 filename=image_name,
+                                image_hash=image_hash,
                                 predicted_class=blank_result.predicted_class,
                                 confidence=blank_result.confidence,
                                 p_unknown=blank_result.p_unknown,
@@ -428,6 +582,7 @@ async def predict_bulk(
 
                         batch_arrays.append(arr)
                         batch_filenames.append(image_name)
+                        batch_hashes.append(image_hash)
 
                     except (OSError, ValueError, RuntimeError, KeyError) as exc:
                         image_elapsed_ms = (time.perf_counter() - image_start) * 1000
@@ -471,12 +626,16 @@ async def predict_bulk(
                         if item is not None:
                             continue
                         result = predicted_results[predicted_index]
+                        image_hash_for_result = batch_hashes[predicted_index]
+
                         batch_results[index] = result
                         predicted_index += 1
+
                         log_prediction(
                             request_id=request_id,
                             mode="bulk",
                             filename=result.filename,
+                            image_hash=image_hash_for_result,
                             predicted_class=result.predicted_class,
                             confidence=result.confidence,
                             p_unknown=result.p_unknown,

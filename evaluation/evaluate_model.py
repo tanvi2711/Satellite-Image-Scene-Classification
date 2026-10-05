@@ -42,6 +42,7 @@ CLASS_MAPPING = {
     "lake": "SeaLake",
     "desert": "Desert",
     "cloud": "Cloudy",
+    "unknown": "Unknown",
 }
 
 # Supported image extensions
@@ -76,7 +77,7 @@ def evaluate_model():
 
         actual_class = CLASS_MAPPING[folder_name]
 
-        if actual_class not in KNOWN_CLASS_NAMES:
+        if actual_class not in CLASS_NAMES:
             print(f"Skipping class not supported by model: {actual_class}")
             continue
 
