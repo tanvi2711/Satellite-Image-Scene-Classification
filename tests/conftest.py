@@ -53,9 +53,17 @@ def api():
 def client(api):
     api.model.predict_calls = 0
     api.model.last_batch_size = 0
-    api.prediction_cache.clear()
 
+    from backend.database import SessionLocal, PredictionLog
     from fastapi.testclient import TestClient
+
+    db = SessionLocal()
+
+    try:
+        db.query(PredictionLog).delete()
+        db.commit()
+    finally:
+        db.close()
 
     return TestClient(api.app)
 
