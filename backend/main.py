@@ -525,7 +525,7 @@ async def predict_bulk(
                                 filename=image_name,
                                 predicted_class=cached_log.predicted_class,
                                 confidence=cached_log.confidence,
-                                confidence_percent=cached_log.confidence_percent,
+                                confidence_percent=f"{cached_log.confidence_percent:.2f}%",
                                 p_unknown=cached_log.p_unknown,
                                 final_result=cached_log.final_result,
                                 status=cached_log.status,
