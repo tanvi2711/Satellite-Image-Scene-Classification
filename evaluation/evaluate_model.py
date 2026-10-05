@@ -37,7 +37,7 @@ OUTPUT_DIR = PROJECT_ROOT / "evaluation" / "results"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Map dataset folder names to model class names
-CLASS_MAPPING  = {
+CLASS_MAPPING = {
     "forest": "Forest",
     "lake": "SeaLake",
     "desert": "Desert",

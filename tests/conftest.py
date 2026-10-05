@@ -54,8 +54,9 @@ def client(api):
     api.model.predict_calls = 0
     api.model.last_batch_size = 0
 
-    from backend.database import SessionLocal, PredictionLog
     from fastapi.testclient import TestClient
+
+    from backend.database import PredictionLog, SessionLocal
 
     db = SessionLocal()
 

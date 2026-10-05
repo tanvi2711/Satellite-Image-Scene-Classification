@@ -3,7 +3,6 @@ from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-
 DATABASE_URL = "sqlite:///./prediction_logs.db"
 
 engine = create_engine(

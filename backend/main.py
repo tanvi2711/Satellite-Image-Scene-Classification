@@ -11,13 +11,13 @@ Run with:
     uvicorn backend.main:app --reload --port 8000
 """
 
+import hashlib
 import io
 import json
 import logging
 import time
 import uuid
 import zipfile
-import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -25,8 +25,11 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
 from tensorflow import keras
+
 from backend.database import PredictionLog, SessionLocal
+
 # ----------------------------------------------------------------------
 # CONFIG
 # ----------------------------------------------------------------------
@@ -46,9 +49,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("satellite_classifier")
 
+
 def calculate_image_hash(image_bytes: bytes) -> str:
     """Create a unique SHA-256 fingerprint for the uploaded image."""
     return hashlib.sha256(image_bytes).hexdigest()
+
 
 def log_prediction(
     *,
@@ -104,7 +109,7 @@ def log_prediction(
         db.add(db_log)
         db.commit()
 
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         db.rollback()
         logger.error(
             json.dumps(
@@ -119,6 +124,7 @@ def log_prediction(
 
     finally:
         db.close()
+
 
 def log_prediction_error(
     *,
@@ -569,10 +575,10 @@ async def predict_bulk(
                                 final_result=blank_result.final_result,
                                 status=blank_result.status,
                                 threshold=selected_threshold,
-                                processing_time_ms=(time.perf_counter() - image_start) * 1000,
+                                processing_time_ms=(time.perf_counter() - image_start)
+                                * 1000,
                             )
                             continue
-
 
                         batch_arrays.append(arr)
                         batch_filenames.append(image_name)
